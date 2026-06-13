@@ -1,0 +1,21 @@
+zerve_transform:
+  # DuckDB is the default backend (local, free, reproducible). BigQuery is kept
+  # as a selectable backup: run `dbt build --target bigquery`.
+  target: duckdb
+  outputs:
+    duckdb:
+      type: duckdb
+      # Path is relative to the dbt project dir. The agent's DuckDBRunner reads
+      # this same file as `zerve_transform/zerve.duckdb` from the repo root.
+      path: zerve.duckdb
+      threads: 8
+
+    bigquery:
+      type: bigquery
+      threads: 16
+      database: my-zerve-project
+      schema: zerveevents
+      method: service-account
+      keyfile: my-zerve-project-7d9f0370ac55.json
+      location: us-east5
+      dataproc_batch: null

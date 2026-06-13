@@ -1,0 +1,151 @@
+version: 2
+
+sources:
+  - name: zerveevents
+    database: my-zerve-project
+    schema: zerveevents
+    tables:
+      - name: zerve_events_raw
+        description: >
+          Raw PostHog-style product event feed for Zerve (~3.5M rows, 83 columns).
+          One row per tracked event. Most property columns are sparsely populated
+          and only relevant to specific event types.
+        # On DuckDB the source resolves to the local CSV (path is relative to the
+        # dbt project dir). On BigQuery this meta is ignored and the
+        # database.schema.table above is used instead.
+        meta:
+          external_location: "../raw_data/zerve_events.csv"
+
+models:
+  - name: stg_events
+    description: >
+      Staged, typed, curated event grain. One row per event. Selects the
+      analytically useful columns from the raw feed, gives them clean snake_case
+      names, and casts sparse numeric fields with TRY_CAST. This is the base
+      model all marts build on.
+    columns:
+      - name: user_id
+        description: Pseudonymous user identifier (UUID v5). Maps to person_id in the raw feed.
+        data_tests:
+          - not_null
+      - name: event_timestamp
+        description: Event occurrence time (UTC).
+      - name: event_date
+        description: Calendar date of the event (derived from event_timestamp).
+      - name: event_name
+        description: >
+          Event type. Common values: credits_used (~27%), $ai_generation (~16%),
+          $exception (~10%), addon_credits_used (~8%), $pageview.
+      - name: cloud_provider
+        description: "User's cloud provider person property (AWS, Azure, GCP). Very sparse (~0.1% populated)."
+      - name: user_purpose
+        description: "Self-reported purpose (e.g. Education, Personal Projects)."
+      - name: user_role
+        description: "Self-reported role (e.g. Student, Data Scientist, ML Engineer)."
+      - name: acquisition_source
+        description: "How the user found Zerve (e.g. Colleague, X (Twitter), Press or Media)."
+      - name: work_type
+        description: "Self-reported work type (e.g. Data & Analytics, Business Applications)."
+      - name: browser
+        description: Browser name (only on web events).
+      - name: browser_language
+        description: Browser locale.
+      - name: device_type
+        description: "Device category (Desktop, Mobile, Tablet)."
+      - name: os
+        description: Operating system.
+      - name: os_version
+        description: Operating system version.
+      - name: continent
+        description: User's continent (GeoIP lookup).
+      - name: country
+        description: User's country (GeoIP lookup).
+      - name: timezone
+        description: User's timezone (GeoIP lookup).
+      - name: ai_model
+        description: "AI model used for an $ai_generation event (e.g. claude-sonnet-4-6, gpt-4)."
+      - name: ai_provider
+        description: "AI provider (openai, anthropic, bedrock). Only on $ai_generation events."
+      - name: ai_input_tokens
+        description: Tokens in the AI prompt. Only on $ai_generation events.
+      - name: ai_output_tokens
+        description: Tokens in the AI completion. Only on $ai_generation events.
+      - name: ai_latency_seconds
+        description: "AI response latency in SECONDS (median ~3.5s, p95 ~35s). Only on $ai_generation events."
+      - name: ai_tool_call_count
+        description: Number of tool calls in the AI generation.
+      - name: ai_tools_called
+        description: Comma-joined list of tool names called during the generation.
+      - name: credit_amount
+        description: Credit amount for a credit event.
+      - name: credits_used
+        description: Credits consumed by the event (populated on usage events).
+      - name: credits_awarded
+        description: Credits granted to the user.
+      - name: credits_remaining
+        description: >
+          Zero-balance trigger: ONLY populated (=0.0) when the user's balance hits
+          zero. Null means a positive balance. NOT a running balance.
+      - name: total_credits
+        description: User's total credit allotment at the time of the event.
+      - name: total_addon_credits
+        description: User's total add-on credits.
+      - name: canvas_id
+        description: Identifier of the Zerve canvas the event relates to.
+      - name: tool_name
+        description: Name of the tool invoked (agent/tooling events).
+      - name: interaction_type
+        description: "UI interaction type (submit, click, change)."
+      - name: prev_pageview_duration_ms
+        description: Duration of the previous pageview in milliseconds.
+      - name: web_vitals_cls
+        description: Cumulative Layout Shift (Core Web Vital). Sparse.
+      - name: web_vitals_fcp
+        description: First Contentful Paint in ms (Core Web Vital). Sparse.
+      - name: web_vitals_inp
+        description: Interaction to Next Paint in ms (Core Web Vital). Sparse.
+      - name: web_vitals_lcp
+        description: Largest Contentful Paint in ms (Core Web Vital). Sparse.
+      - name: utm_source
+        description: UTM source for acquisition attribution.
+      - name: utm_medium
+        description: UTM medium for acquisition attribution.
+      - name: utm_campaign
+        description: UTM campaign for acquisition attribution.
+      - name: updated_at
+        description: Timestamp when the staging model was built.
+
+  - name: stg_feature_events
+    description: >
+      Event-grain feature tagging. One row per event with a feature_category that
+      maps the raw event_name onto a product feature area (AI Generation, Agent,
+      Block Execution, Deployments, Credits, Errors, Web / Pageviews, Onboarding,
+      Auth, System / Identity, Other). Single source of truth for feature
+      categorization; the dashboard reads it directly and agg_feature_usage rolls
+      it up daily.
+    columns:
+      - name: user_id
+        description: User who triggered the event.
+      - name: event_date
+        description: Calendar date of the event.
+      - name: event_name
+        description: Raw event type from the source feed.
+      - name: feature_category
+        description: Product feature area the event belongs to.
+
+  - name: user_events
+    description: Per-user event rollup (volume and lifespan) aggregated from stg_events.
+    columns:
+      - name: user_id
+        description: Unique user identifier.
+        data_tests:
+          - not_null
+          - unique
+      - name: total_event_count
+        description: Total number of events recorded for the user.
+        data_tests:
+          - not_null
+      - name: first_event_timestamp
+        description: Timestamp of the user's first recorded event.
+      - name: last_event_timestamp
+        description: Timestamp of the user's most recent recorded event.

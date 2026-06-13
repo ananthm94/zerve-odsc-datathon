@@ -1,0 +1,527 @@
+version: 2
+
+models:
+  - name: metricflow_time_spine
+    description: Daily time spine required by the dbt semantic layer (MetricFlow).
+    time_spine:
+      standard_granularity_column: date_day
+    columns:
+      - name: date_day
+        description: One row per calendar day.
+        granularity: day
+
+  - name: dim_users
+    description: >
+      One row per user. Stable person attributes (role, purpose, acquisition
+      source, cloud provider) plus the modal device and geography observed across
+      all of the user's events. Use for user-attribute slicing and cohorting.
+    columns:
+      - name: user_id
+        description: Unique user identifier.
+        data_tests: [not_null, unique]
+      - name: user_role
+        description: Most common self-reported role for the user.
+      - name: user_purpose
+        description: Most common self-reported purpose.
+      - name: acquisition_source
+        description: Most common acquisition source.
+      - name: work_type
+        description: Most common self-reported work type.
+      - name: cloud_provider
+        description: Most common cloud provider (very sparse).
+      - name: country
+        description: Modal country (GeoIP).
+      - name: continent
+        description: Modal continent (GeoIP).
+      - name: timezone
+        description: Modal timezone (GeoIP).
+      - name: device_type
+        description: Modal device category.
+      - name: os
+        description: Modal operating system.
+      - name: browser
+        description: Modal browser.
+      - name: first_seen_at
+        description: Timestamp of the user's first event.
+      - name: last_seen_at
+        description: Timestamp of the user's most recent event.
+      - name: first_seen_date
+        description: Calendar date of the user's first event.
+      - name: total_events
+        description: Total events recorded for the user.
+
+  - name: fct_ai_generations
+    description: >
+      One row per $ai_generation event. Token usage, latency, model and provider.
+      The grain for all AI/LLM usage and cost-proxy analysis.
+    columns:
+      - name: user_id
+        description: User who triggered the generation.
+      - name: event_timestamp
+        description: When the generation occurred (UTC).
+      - name: event_date
+        description: Calendar date of the generation.
+      - name: ai_model
+        description: "AI model used (e.g. claude-sonnet-4-6, claude-haiku-4-5)."
+      - name: ai_provider
+        description: "AI provider (openai, anthropic, bedrock)."
+      - name: ai_input_tokens
+        description: Prompt tokens.
+      - name: ai_output_tokens
+        description: Completion tokens.
+      - name: total_tokens
+        description: Input + output tokens (a usage/cost proxy).
+      - name: ai_latency_seconds
+        description: Response latency in seconds.
+      - name: ai_tool_call_count
+        description: Number of tool calls in the generation.
+      - name: ai_tools_called
+        description: Comma-joined list of tools called.
+
+  - name: fct_credits
+    description: >
+      Credit-consumption events. One row per credit event. credits_remaining is a
+      zero-balance trigger, not a running balance -- use hit_zero_balance instead.
+    columns:
+      - name: user_id
+        description: User the credit event belongs to.
+      - name: event_timestamp
+        description: When the credit event occurred.
+      - name: event_date
+        description: Calendar date of the credit event.
+      - name: event_name
+        description: "Credit event type (credits_used, addon_credits_used)."
+      - name: credit_amount
+        description: Credit amount on the event.
+      - name: credits_used
+        description: Credits consumed by the event.
+      - name: credits_awarded
+        description: Credits granted on the event.
+      - name: total_credits
+        description: User's total credit allotment at the time.
+      - name: total_addon_credits
+        description: User's total add-on credits.
+      - name: hit_zero_balance
+        description: True when this event recorded the balance hitting zero.
+
+  - name: fct_pageviews
+    description: >
+      One row per $pageview event with device/geo context, prior-pageview
+      engagement, and Core Web Vitals (sparse).
+    columns:
+      - name: user_id
+        description: User who viewed the page.
+      - name: event_timestamp
+        description: When the pageview occurred.
+      - name: event_date
+        description: Calendar date of the pageview.
+      - name: browser
+        description: Browser used.
+      - name: device_type
+        description: Device category.
+      - name: os
+        description: Operating system.
+      - name: country
+        description: Country (GeoIP).
+      - name: continent
+        description: Continent (GeoIP).
+      - name: prev_pageview_duration_ms
+        description: Duration of the previous pageview (ms).
+      - name: web_vitals_cls
+        description: Cumulative Layout Shift.
+      - name: web_vitals_fcp
+        description: First Contentful Paint (ms).
+      - name: web_vitals_inp
+        description: Interaction to Next Paint (ms).
+      - name: web_vitals_lcp
+        description: Largest Contentful Paint (ms).
+
+  - name: fct_exceptions
+    description: One row per $exception event with device/geo context for reliability analysis.
+    columns:
+      - name: user_id
+        description: User who hit the exception.
+      - name: event_timestamp
+        description: When the exception occurred.
+      - name: event_date
+        description: Calendar date of the exception.
+      - name: browser
+        description: Browser in use.
+      - name: device_type
+        description: Device category.
+      - name: os
+        description: Operating system.
+      - name: os_version
+        description: Operating system version.
+      - name: country
+        description: Country (GeoIP).
+
+  - name: agg_daily_activity
+    description: >
+      Daily rollup: one row per calendar day with active users and an event-type
+      breakdown. Powers DAU and daily trend analysis.
+    columns:
+      - name: event_date
+        description: Calendar day.
+        data_tests: [not_null, unique]
+      - name: active_users
+        description: Distinct users active that day.
+      - name: total_events
+        description: Total events that day.
+      - name: ai_generations
+        description: $ai_generation events that day.
+      - name: exceptions
+        description: $exception events that day.
+      - name: pageviews
+        description: $pageview events that day.
+      - name: credit_events
+        description: Credit-consumption events that day.
+
+  - name: fct_user_activity_weekly
+    description: >
+      One row per user per active ISO week, with the user's cohort week (first
+      active week) and the week_offset between them. Building block for cohort
+      retention curves and triangles.
+    columns:
+      - name: user_id
+        description: User who was active.
+      - name: cohort_week
+        description: The user's first active week (Monday); defines their cohort.
+      - name: activity_week
+        description: A week (Monday) in which the user was active.
+      - name: week_offset
+        description: Whole weeks between cohort_week and activity_week (0 = first week).
+
+  - name: agg_feature_usage
+    description: >
+      Daily feature-usage rollup: one row per (event_date, feature_category) with
+      event volume and distinct-user reach. Aggregated from stg_feature_events.
+      Powers feature trend analysis and adoption questions.
+    columns:
+      - name: event_date
+        description: Calendar day.
+      - name: feature_category
+        description: Product feature area (see stg_feature_events).
+      - name: events
+        description: Number of events in that feature area that day.
+      - name: distinct_users
+        description: Distinct users who used that feature area that day.
+
+  - name: user_summary
+    description: >
+      Enriched user-level mart: lifetime and activity segment plus AI usage,
+      credit consumption, and reliability signals. The primary table for
+      cohort slicing and per-user analysis.
+    columns:
+      - name: user_id
+        description: Unique user identifier.
+        data_tests: [not_null, unique]
+      - name: total_event_count
+        description: Total events for the user.
+        data_tests: [not_null]
+      - name: first_event_timestamp
+        description: Timestamp of the user's first event.
+      - name: first_event_date
+        description: Calendar date of the user's first event.
+      - name: last_event_timestamp
+        description: Timestamp of the user's most recent event.
+      - name: last_event_date
+        description: Calendar date of the user's most recent event.
+      - name: user_lifetime_days
+        description: Days between first and last event.
+      - name: ai_generation_count
+        description: Number of AI generations by the user.
+      - name: total_ai_tokens
+        description: Total AI tokens (input + output) consumed by the user.
+      - name: avg_ai_latency_seconds
+        description: Average AI response latency for the user (seconds).
+      - name: total_credits_used
+        description: Total credits consumed by the user.
+      - name: credit_event_count
+        description: Number of credit-consumption events.
+      - name: exception_count
+        description: Number of exceptions the user encountered.
+      - name: activity_segment
+        description: "Activity band from total_event_count: low (<20), medium (20-99), high (>=100)."
+      - name: is_ai_user
+        description: True if the user has at least one AI generation.
+
+semantic_models:
+  - name: events
+    description: Event-grain semantic model for active-user and event-volume metrics.
+    model: ref('stg_events')
+    primary_entity: event
+    defaults:
+      agg_time_dimension: event_date
+    entities:
+      - name: user
+        type: foreign
+        expr: user_id
+    dimensions:
+      - name: event_date
+        type: time
+        type_params:
+          time_granularity: day
+      - name: event_name
+        type: categorical
+      - name: event_country
+        type: categorical
+        expr: country
+      - name: event_device_type
+        type: categorical
+        expr: device_type
+    measures:
+      - name: event_count
+        description: Count of events.
+        agg: count
+        expr: user_id
+      - name: active_users
+        description: Distinct active users.
+        agg: count_distinct
+        expr: user_id
+
+  - name: ai_generations
+    description: $ai_generation grain for AI/LLM usage metrics.
+    model: ref('fct_ai_generations')
+    primary_entity: ai_generation_event
+    defaults:
+      agg_time_dimension: event_date
+    entities:
+      - name: user
+        type: foreign
+        expr: user_id
+    dimensions:
+      - name: event_date
+        type: time
+        type_params:
+          time_granularity: day
+      - name: ai_model
+        type: categorical
+      - name: ai_provider
+        type: categorical
+    measures:
+      - name: ai_generation_count
+        description: Number of AI generations.
+        agg: count
+        expr: user_id
+      - name: ai_input_tokens_sum
+        description: Total prompt tokens.
+        agg: sum
+        expr: ai_input_tokens
+      - name: ai_output_tokens_sum
+        description: Total completion tokens.
+        agg: sum
+        expr: ai_output_tokens
+      - name: ai_tokens_sum
+        description: Total tokens (input + output).
+        agg: sum
+        expr: total_tokens
+      - name: ai_latency_avg
+        description: Average response latency in seconds.
+        agg: average
+        expr: ai_latency_seconds
+
+  - name: credits
+    description: Credit-consumption grain for billing metrics.
+    model: ref('fct_credits')
+    primary_entity: credit_event
+    defaults:
+      agg_time_dimension: event_date
+    entities:
+      - name: user
+        type: foreign
+        expr: user_id
+    dimensions:
+      - name: event_date
+        type: time
+        type_params:
+          time_granularity: day
+      - name: credit_event_name
+        type: categorical
+        expr: event_name
+    measures:
+      - name: credit_event_count
+        description: Number of credit-consumption events.
+        agg: count
+        expr: user_id
+      - name: credits_used_sum
+        description: Total credits consumed.
+        agg: sum
+        expr: credits_used
+
+  - name: exceptions
+    description: $exception grain for reliability metrics.
+    model: ref('fct_exceptions')
+    primary_entity: exception_event
+    defaults:
+      agg_time_dimension: event_date
+    entities:
+      - name: user
+        type: foreign
+        expr: user_id
+    dimensions:
+      - name: event_date
+        type: time
+        type_params:
+          time_granularity: day
+      - name: exception_country
+        type: categorical
+        expr: country
+      - name: exception_os
+        type: categorical
+        expr: os
+    measures:
+      - name: exception_count
+        description: Number of exceptions.
+        agg: count
+        expr: user_id
+
+  - name: user_summary
+    description: User-level semantic model for user counts, lifetime, and per-user aggregates.
+    model: ref('user_summary')
+    defaults:
+      agg_time_dimension: first_event_date
+    entities:
+      - name: user
+        type: primary
+        expr: user_id
+    dimensions:
+      - name: first_event_date
+        type: time
+        type_params:
+          time_granularity: day
+      - name: last_event_date
+        type: time
+        type_params:
+          time_granularity: day
+      - name: activity_segment
+        type: categorical
+    measures:
+      - name: total_users_measure
+        description: Count of unique users.
+        agg: count_distinct
+        expr: user_id
+      - name: total_events_measure
+        description: Sum of event counts across all users.
+        agg: sum
+        expr: total_event_count
+      - name: avg_events_per_user_measure
+        description: Average number of events per user.
+        agg: average
+        expr: total_event_count
+      - name: max_user_events_measure
+        description: Maximum event count for any user.
+        agg: max
+        expr: total_event_count
+      - name: min_user_events_measure
+        description: Minimum event count for any user.
+        agg: min
+        expr: total_event_count
+      - name: avg_user_lifetime_days_measure
+        description: Average days between a user's first and last event.
+        agg: average
+        expr: user_lifetime_days
+      - name: ai_user_count_measure
+        description: Count of users who have made at least one AI generation.
+        agg: sum
+        expr: "case when is_ai_user then 1 else 0 end"
+
+metrics:
+  - name: total_users
+    label: Total Users
+    description: Count of unique users.
+    type: simple
+    type_params:
+      measure: total_users_measure
+
+  - name: total_events
+    label: Total Events
+    description: Sum of event counts across all users.
+    type: simple
+    type_params:
+      measure: total_events_measure
+
+  - name: avg_events_per_user
+    label: Average Events per User
+    description: Average number of events per user.
+    type: simple
+    type_params:
+      measure: avg_events_per_user_measure
+
+  - name: max_user_events
+    label: Maximum User Events
+    description: Maximum event count for any user.
+    type: simple
+    type_params:
+      measure: max_user_events_measure
+
+  - name: min_user_events
+    label: Minimum User Events
+    description: Minimum event count for any user.
+    type: simple
+    type_params:
+      measure: min_user_events_measure
+
+  - name: avg_user_lifetime_days
+    label: Average User Lifetime Days
+    description: Average days between a user's first and last event.
+    type: simple
+    type_params:
+      measure: avg_user_lifetime_days_measure
+
+  - name: daily_active_users
+    label: Daily Active Users
+    description: Distinct active users (group by day for DAU).
+    type: simple
+    type_params:
+      measure: active_users
+
+  - name: total_ai_generations
+    label: Total AI Generations
+    description: Number of $ai_generation events.
+    type: simple
+    type_params:
+      measure: ai_generation_count
+
+  - name: total_ai_tokens
+    label: Total AI Tokens
+    description: Total AI tokens consumed (input + output).
+    type: simple
+    type_params:
+      measure: ai_tokens_sum
+
+  - name: avg_ai_latency
+    label: Average AI Latency (s)
+    description: Average AI response latency in seconds.
+    type: simple
+    type_params:
+      measure: ai_latency_avg
+
+  - name: total_credits_used
+    label: Total Credits Used
+    description: Total credits consumed across credit events.
+    type: simple
+    type_params:
+      measure: credits_used_sum
+
+  - name: total_exceptions
+    label: Total Exceptions
+    description: Number of $exception events.
+    type: simple
+    type_params:
+      measure: exception_count
+
+  - name: ai_users
+    label: AI Users
+    description: Count of users who have made at least one AI generation.
+    type: simple
+    type_params:
+      measure: ai_user_count_measure
+
+  - name: ai_adoption_rate
+    label: AI Adoption Rate
+    description: Share of users who have made at least one AI generation.
+    type: ratio
+    type_params:
+      numerator: ai_users
+      denominator: total_users

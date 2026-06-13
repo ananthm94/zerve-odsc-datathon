@@ -1,0 +1,40 @@
+# Data Manipulation
+pandas>=2.0.0
+numpy>=1.24.0
+
+# Data Visualization
+matplotlib>=3.7.0
+seaborn>=0.12.0
+
+# Machine Learning
+scikit-learn>=1.3.0
+xgboost>=2.0.0
+
+# Statistics (experiment analysis — v0.6)
+scipy>=1.11.0
+statsmodels>=0.14.0
+
+# Development & Notebooks
+jupyter>=1.0.0
+notebook>=7.0.0
+ipykernel>=6.25.0
+
+# dbt + warehouses (DuckDB is the default backend; BigQuery is an optional backup)
+dbt-core>=1.10.0,<1.11.0
+dbt-duckdb>=1.10.0,<1.11.0
+dbt-bigquery>=1.10.0,<1.11.0
+duckdb>=1.1.0
+
+# Semantic search
+python-dotenv>=1.0.0
+google-cloud-bigquery>=3.25.0
+langchain>=0.3.0
+langchain-core>=0.3.0
+langchain-community>=0.3.0
+langchain-openai>=0.3.0
+langchain-anthropic>=0.3.0
+langchain-qdrant>=0.2.0
+langgraph>=0.2.0
+pyyaml>=6.0.0
+qdrant-client>=1.16.1,<1.17.0
+streamlit>=1.39.0
