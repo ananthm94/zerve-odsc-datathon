@@ -1,0 +1,33 @@
+- question: "What is daily active users?"
+  expected_intent: metric_definition_question
+  expected_response_mode: definition
+  expected_metrics:
+    - daily_active_users
+  expected_tables:
+    - stg_events
+
+- question: "How many users use AI?"
+  expected_intent: simple_metric_question
+  expected_response_mode: quick_answer
+  expected_metrics:
+    - ai_users
+  expected_tables:
+    - user_summary
+
+- question: "Monitor daily active users weekly"
+  expected_intent: dashboard_request
+  expected_response_mode: dashboard_spec
+  expected_metrics:
+    - daily_active_users
+  expected_tables:
+    - stg_events
+
+- question: "Why did AI credit consumption change?"
+  expected_intent: analysis
+  expected_response_mode: standard_analysis
+  expected_metrics:
+    - total_credits_used
+    - total_ai_tokens
+  expected_tables:
+    - fct_credits
+    - fct_ai_generations

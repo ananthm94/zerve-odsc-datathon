@@ -1,6 +1,6 @@
 import unittest
 
-from analytics_agent.sql import SQLValidationError, ensure_default_limit, validate_sql
+from analytics_agent.core.sql import SQLValidationError, ensure_default_limit, validate_sql
 
 
 ALLOWED_TABLES = {"stg_events", "user_events", "user_summary"}

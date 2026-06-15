@@ -1,0 +1,48 @@
+# Copy to model_profiles.yml and edit for your OpenRouter models/prices.
+# Prices change over time, so keep these values in local config rather than code.
+
+default_provider: openrouter
+default_model: openai/gpt-4.1-mini
+
+tasks:
+  intent:
+    difficulty: hard
+    provider: openrouter
+    model: anthropic/claude-haiku-4.5
+  plan:
+    difficulty: standard
+    provider: openrouter
+    model: openai/gpt-4.1-mini
+  sql:
+    difficulty: hard
+    provider: openrouter
+    model: anthropic/claude-haiku-4.5
+  repair:
+    difficulty: hard
+    provider: openrouter
+    model: anthropic/claude-haiku-4.5
+  reflect:
+    difficulty: standard
+    provider: openrouter
+    model: openai/gpt-4.1-mini
+  synthesize:
+    difficulty: hard
+    provider: openrouter
+    model: anthropic/claude-haiku-4.5
+  dashboard_repair:
+    difficulty: standard
+    provider: openrouter
+    model: openai/gpt-4.1-mini
+  experiment_narrative:
+    difficulty: standard
+    provider: openrouter
+    model: openai/gpt-4.1-mini
+
+prices:
+  # Fill these from OpenRouter's model page. Values are USD per 1M tokens.
+  openai/gpt-4.1-mini:
+    input_per_million: 0.4
+    output_per_million: 1.6
+  anthropic/claude-haiku-4.5:
+    input_per_million: 1.0
+    output_per_million: 5.0

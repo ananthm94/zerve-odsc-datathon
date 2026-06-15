@@ -1,6 +1,6 @@
 from google.cloud import bigquery
 
-from analytics_agent.config import AgentConfig
+from analytics_agent.core.config import AgentConfig
 
 
 class BigQueryRunner:

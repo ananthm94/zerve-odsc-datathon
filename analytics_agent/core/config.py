@@ -8,6 +8,7 @@ from dotenv import load_dotenv
 
 
 DEFAULT_MANIFEST_PATH = "zerve_transform/target/manifest.json"
+DEFAULT_SEMANTIC_MANIFEST_PATH = "zerve_transform/target/semantic_manifest.json"
 # Fallback allowlist if the dbt manifest cannot be read.
 FALLBACK_TABLE_NAMES = {"stg_events", "user_events", "user_summary"}
 DEFAULT_COLLECTION_NAME = "dbt_semantic_dictionary"
@@ -15,6 +16,9 @@ DEFAULT_EMBEDDING_MODEL = "text-embedding-3-small"
 DEFAULT_CHAT_MODEL = "gpt-4.1-mini"
 DEFAULT_LLM_PROVIDER = "openai"
 DEFAULT_RESULT_LIMIT = 100
+DEFAULT_AGENT_STORE_DIR = "agent_store"
+DEFAULT_SNAPSHOT_DRIFT_THRESHOLD = 0.15
+DEFAULT_MODEL_PROFILE_PATH = "model_profiles.yml"
 # Ceiling on how many sub-queries the autonomous agent may run for one question
 # (planned + reflection follow-ups), bounding runtime and LLM/warehouse cost.
 DEFAULT_MAX_SUB_QUERIES = 8
@@ -49,6 +53,11 @@ class AgentConfig:
     llm_api_key: str | None = None
     llm_base_url: str | None = None
     manifest_path: str = DEFAULT_MANIFEST_PATH
+    semantic_manifest_path: str = DEFAULT_SEMANTIC_MANIFEST_PATH
+    agent_store_dir: str = DEFAULT_AGENT_STORE_DIR
+    snapshot_drift_threshold: float = DEFAULT_SNAPSHOT_DRIFT_THRESHOLD
+    model_profile_path: str = DEFAULT_MODEL_PROFILE_PATH
+    model_routing_enabled: bool = False
     default_result_limit: int = DEFAULT_RESULT_LIMIT
     max_sub_queries: int = DEFAULT_MAX_SUB_QUERIES
 
@@ -141,6 +150,19 @@ def load_config() -> AgentConfig:
         llm_api_key=os.getenv("LLM_API_KEY") or None,
         llm_base_url=os.getenv("LLM_BASE_URL") or None,
         manifest_path=os.getenv("DBT_MANIFEST_PATH", DEFAULT_MANIFEST_PATH),
+        semantic_manifest_path=os.getenv(
+            "DBT_SEMANTIC_MANIFEST_PATH", DEFAULT_SEMANTIC_MANIFEST_PATH
+        ),
+        agent_store_dir=os.getenv("AGENT_STORE_DIR", DEFAULT_AGENT_STORE_DIR),
+        snapshot_drift_threshold=float(
+            os.getenv(
+                "SNAPSHOT_DRIFT_THRESHOLD",
+                str(DEFAULT_SNAPSHOT_DRIFT_THRESHOLD),
+            )
+        ),
+        model_profile_path=os.getenv("MODEL_PROFILE_PATH", DEFAULT_MODEL_PROFILE_PATH),
+        model_routing_enabled=os.getenv("MODEL_ROUTING_ENABLED", "false").lower()
+        in {"1", "true", "yes", "on"},
         max_sub_queries=int(
             os.getenv("MAX_SUB_QUERIES", str(DEFAULT_MAX_SUB_QUERIES))
         ),

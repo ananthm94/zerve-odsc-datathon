@@ -1,0 +1,1196 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Zerve Analytics Agent Architecture</title>
+  <style>
+    :root {
+      --ink: #18212f;
+      --muted: #627086;
+      --line: #d8e0ea;
+      --paper: #fbfcfe;
+      --panel: #ffffff;
+      --violet: #6d28d9;
+      --blue: #0f6bba;
+      --teal: #057a78;
+      --green: #287a3e;
+      --amber: #a16207;
+      --rose: #b4234c;
+      --shadow: 0 18px 45px rgba(24, 33, 47, 0.08);
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    html {
+      scroll-behavior: smooth;
+    }
+
+    body {
+      margin: 0;
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      color: var(--ink);
+      background:
+        linear-gradient(180deg, #f6f8fb 0%, #fbfcfe 34%, #ffffff 100%);
+      line-height: 1.5;
+      overflow-x: hidden;
+    }
+
+    a {
+      color: inherit;
+    }
+
+    .shell {
+      width: min(1440px, calc(100% - 40px));
+      margin: 0 auto;
+    }
+
+    header {
+      padding: 34px 0 22px;
+      border-bottom: 1px solid var(--line);
+      background: rgba(251, 252, 254, 0.92);
+      backdrop-filter: blur(10px);
+      position: sticky;
+      top: 0;
+      z-index: 20;
+    }
+
+    .topline {
+      display: flex;
+      align-items: end;
+      justify-content: space-between;
+      gap: 24px;
+    }
+
+    h1 {
+      margin: 0;
+      font-size: clamp(2rem, 5vw, 4.4rem);
+      line-height: 0.96;
+      letter-spacing: 0;
+    }
+
+    .subtitle {
+      margin: 14px 0 0;
+      max-width: 850px;
+      color: var(--muted);
+      font-size: 1.03rem;
+    }
+
+    .status {
+      min-width: 250px;
+      padding: 14px 16px;
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      box-shadow: var(--shadow);
+      font-size: 0.92rem;
+    }
+
+    .status strong {
+      display: block;
+      margin-bottom: 4px;
+      color: var(--green);
+    }
+
+    nav {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-top: 22px;
+    }
+
+    nav a {
+      text-decoration: none;
+      color: #334155;
+      border: 1px solid var(--line);
+      background: #fff;
+      border-radius: 999px;
+      padding: 7px 11px;
+      font-size: 0.86rem;
+    }
+
+    main {
+      padding: 28px 0 72px;
+    }
+
+    section {
+      margin: 42px 0;
+    }
+
+    h2 {
+      margin: 0 0 12px;
+      font-size: clamp(1.6rem, 3vw, 2.4rem);
+      letter-spacing: 0;
+    }
+
+    h3 {
+      margin: 0 0 8px;
+      font-size: 1rem;
+      letter-spacing: 0;
+    }
+
+    p {
+      margin: 0;
+    }
+
+    .lead {
+      max-width: 920px;
+      color: var(--muted);
+      font-size: 1.02rem;
+      margin-bottom: 18px;
+    }
+
+    .legend {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      margin: 18px 0 6px;
+    }
+
+    .chip {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 7px 10px;
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      background: #fff;
+      color: #334155;
+      font-size: 0.86rem;
+    }
+
+    .dot {
+      width: 9px;
+      height: 9px;
+      border-radius: 50%;
+      background: var(--violet);
+    }
+
+    .dot.data { background: var(--blue); }
+    .dot.agent { background: var(--violet); }
+    .dot.safe { background: var(--green); }
+    .dot.eval { background: var(--amber); }
+    .dot.store { background: var(--teal); }
+
+    .canvas {
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      box-shadow: var(--shadow);
+      padding: 20px;
+      overflow-x: auto;
+      contain: inline-size;
+    }
+
+    .flow {
+      min-width: 980px;
+      display: grid;
+      gap: 14px;
+    }
+
+    .flow.cols-5 {
+      grid-template-columns: repeat(5, minmax(170px, 1fr));
+    }
+
+    .flow.cols-4 {
+      grid-template-columns: repeat(4, minmax(200px, 1fr));
+    }
+
+    .lane-title {
+      color: #475569;
+      font-size: 0.78rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      margin-bottom: 8px;
+    }
+
+    .lane {
+      display: grid;
+      gap: 12px;
+      align-content: start;
+    }
+
+    .node {
+      position: relative;
+      min-height: 112px;
+      padding: 13px 14px;
+      background: #fff;
+      border: 1px solid var(--line);
+      border-left: 5px solid var(--blue);
+      border-radius: 8px;
+    }
+
+    .node.agent { border-left-color: var(--violet); }
+    .node.safe { border-left-color: var(--green); }
+    .node.eval { border-left-color: var(--amber); }
+    .node.store { border-left-color: var(--teal); }
+    .node.risk { border-left-color: var(--rose); }
+
+    .node small {
+      display: block;
+      color: var(--muted);
+      margin-top: 6px;
+      font-size: 0.82rem;
+    }
+
+    .node code,
+    .pill code {
+      font-family: "SFMono-Regular", Consolas, monospace;
+      font-size: 0.82em;
+      color: #243244;
+      background: #f1f5f9;
+      border-radius: 5px;
+      padding: 2px 5px;
+    }
+
+    .arrow {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: #64748b;
+      font-size: 1.5rem;
+      font-weight: 700;
+    }
+
+    .wide-row {
+      display: grid;
+      grid-template-columns: 1.15fr 0.85fr;
+      gap: 18px;
+      align-items: stretch;
+    }
+
+    .matrix {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 14px;
+    }
+
+    .panel {
+      background: #fff;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 16px;
+    }
+
+    .panel h3 {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+    }
+
+    .tag {
+      display: inline-flex;
+      align-items: center;
+      white-space: nowrap;
+      border-radius: 999px;
+      padding: 4px 8px;
+      font-size: 0.73rem;
+      color: #fff;
+      background: var(--blue);
+      font-weight: 700;
+    }
+
+    .tag.agent { background: var(--violet); }
+    .tag.safe { background: var(--green); }
+    .tag.eval { background: var(--amber); }
+    .tag.store { background: var(--teal); }
+    .tag.risk { background: var(--rose); }
+
+    ul {
+      margin: 10px 0 0;
+      padding-left: 18px;
+      color: #405066;
+    }
+
+    li + li {
+      margin-top: 6px;
+    }
+
+    .sequence {
+      display: grid;
+      grid-template-columns: repeat(8, minmax(132px, 1fr));
+      gap: 10px;
+      min-width: 1160px;
+      align-items: stretch;
+    }
+
+    .routing-flow {
+      display: grid;
+      grid-template-columns: repeat(7, minmax(148px, 1fr));
+      gap: 10px;
+      min-width: 1180px;
+      align-items: stretch;
+    }
+
+    .routing-flow.inner {
+      grid-template-columns: repeat(6, minmax(150px, 1fr));
+      min-width: 980px;
+    }
+
+    .routing-node {
+      background: #fff;
+      border: 1px solid var(--line);
+      border-top: 5px solid var(--violet);
+      border-radius: 8px;
+      padding: 12px;
+      min-height: 138px;
+    }
+
+    .routing-node.data { border-top-color: var(--blue); }
+    .routing-node.safe { border-top-color: var(--green); }
+    .routing-node.store { border-top-color: var(--teal); }
+
+    .routing-node span {
+      display: block;
+      color: var(--muted);
+      font-size: 0.74rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      margin-bottom: 8px;
+    }
+
+    .routing-arrow {
+      color: #64748b;
+      font-weight: 800;
+      margin: 8px 0 0;
+    }
+
+    .route-example {
+      font-size: 0.88rem;
+      color: var(--muted);
+    }
+
+    .step {
+      background: #fff;
+      border: 1px solid var(--line);
+      border-top: 5px solid var(--violet);
+      border-radius: 8px;
+      padding: 12px;
+      min-height: 150px;
+    }
+
+    .step span {
+      display: block;
+      color: var(--muted);
+      font-size: 0.74rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      margin-bottom: 8px;
+    }
+
+    .feature-grid {
+      display: grid;
+      grid-template-columns: repeat(5, minmax(0, 1fr));
+      gap: 14px;
+    }
+
+    .feature {
+      border: 1px solid var(--line);
+      background: #fff;
+      border-radius: 8px;
+      padding: 15px;
+    }
+
+    .feature strong {
+      display: block;
+      margin-bottom: 8px;
+    }
+
+    .feature p {
+      color: var(--muted);
+      font-size: 0.91rem;
+    }
+
+    .table {
+      width: 100%;
+      border-collapse: collapse;
+      background: #fff;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      overflow: hidden;
+      display: table;
+    }
+
+    .table th,
+    .table td {
+      text-align: left;
+      padding: 11px 12px;
+      border-bottom: 1px solid var(--line);
+      vertical-align: top;
+      font-size: 0.92rem;
+    }
+
+    .table th {
+      background: #f8fafc;
+      color: #334155;
+      font-size: 0.78rem;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+    }
+
+    .table tr:last-child td {
+      border-bottom: 0;
+    }
+
+    .callout {
+      border-left: 5px solid var(--green);
+      background: #f7fbf8;
+      padding: 14px 16px;
+      border-radius: 8px;
+      color: #31533b;
+    }
+
+    .change-map {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 14px;
+    }
+
+    footer {
+      border-top: 1px solid var(--line);
+      padding: 24px 0 40px;
+      color: var(--muted);
+      font-size: 0.9rem;
+    }
+
+    @media (max-width: 1050px) {
+      .topline,
+      .wide-row,
+      .change-map {
+        grid-template-columns: 1fr;
+        display: grid;
+      }
+
+      .status {
+        min-width: 0;
+      }
+
+      .matrix,
+      .feature-grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+    }
+
+    @media (max-width: 720px) {
+      .shell {
+        width: min(100% - 24px, 1440px);
+      }
+
+      header {
+        position: static;
+        padding-top: 24px;
+      }
+
+      .matrix,
+      .feature-grid {
+        grid-template-columns: 1fr;
+      }
+
+      .canvas {
+        padding: 14px;
+      }
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <div class="shell">
+      <div class="topline">
+        <div>
+          <h1>Zerve Analytics Agent Architecture</h1>
+          <p class="subtitle">
+            A detailed map of how the Streamlit product analytics app turns raw
+            PostHog-style events into trusted answers, dashboards, saved reports,
+            and observational cohort comparisons.
+          </p>
+        </div>
+        <aside class="status" aria-label="Current implementation status">
+          <strong>Current status: v0.9 trust loop</strong>
+          DuckDB default, optional BigQuery, dbt semantic layer, Qdrant retrieval,
+          LangGraph analysis, report memory, generated dashboards, snapshots,
+          model routing, evals, and a guided Streamlit UI.
+        </aside>
+      </div>
+      <nav aria-label="Page sections">
+        <a href="#overview">Overview</a>
+        <a href="#data-flow">Data Flow</a>
+        <a href="#ask-loop">Ask Trust Loop</a>
+        <a href="#langgraph-routing">LangGraph Routing</a>
+        <a href="#features">Feature Surfaces</a>
+        <a href="#models">Model Routing</a>
+        <a href="#guardrails">Guardrails</a>
+        <a href="#evals">Evals</a>
+        <a href="#storage">Storage</a>
+        <a href="#change-map">Change Map</a>
+      </nav>
+    </div>
+  </header>
+
+  <main class="shell">
+    <section id="overview">
+      <h2>System Overview</h2>
+      <p class="lead">
+        The application has three main operating loops. First, dbt builds a
+        local semantic warehouse and metadata artifacts. Second, metadata is
+        embedded into Qdrant so the agent can retrieve official table, column,
+        semantic-model, and metric context. Third, Streamlit routes users into
+        Ask, Library, Dashboard, Experiments, and About workflows.
+      </p>
+      <div class="legend" aria-label="Diagram legend">
+        <span class="chip"><span class="dot data"></span> Data and dbt</span>
+        <span class="chip"><span class="dot agent"></span> Agent and LLM</span>
+        <span class="chip"><span class="dot safe"></span> Guardrail</span>
+        <span class="chip"><span class="dot eval"></span> Eval or test</span>
+        <span class="chip"><span class="dot store"></span> Storage</span>
+      </div>
+      <div class="wide-row">
+        <div class="canvas">
+          <div class="flow cols-5" aria-label="End-to-end system flow">
+            <div class="lane">
+              <div class="lane-title">Source</div>
+              <div class="node">
+                <h3>Product Events</h3>
+                <small>PostHog-style raw event feed, about 3.5M events, 17.5k users, 2025-09 through 2026-04.</small>
+              </div>
+            </div>
+            <div class="lane">
+              <div class="lane-title">Transform</div>
+              <div class="node">
+                <h3>dbt Project</h3>
+                <small><code>zerve_transform/</code> builds staging models, marts, AHA models, semantic models, and metrics.</small>
+              </div>
+            </div>
+            <div class="lane">
+              <div class="lane-title">Warehouse</div>
+              <div class="node store">
+                <h3>DuckDB by Default</h3>
+                <small><code>zerve_transform/zerve.duckdb</code> is queried read-only. BigQuery is optional behind the same runner protocol.</small>
+              </div>
+            </div>
+            <div class="lane">
+              <div class="lane-title">Intelligence</div>
+              <div class="node agent">
+                <h3>Agent + Retrieval</h3>
+                <small>LangGraph plans analyses, retrieves dbt context from Qdrant, writes SQL, reflects, and synthesizes cited answers.</small>
+              </div>
+            </div>
+            <div class="lane">
+              <div class="lane-title">Product</div>
+              <div class="node">
+                <h3>Streamlit App</h3>
+                <small>Ask, Library, Activation Dashboard, Experiments, and About use shared config, runners, helpers, and persistence.</small>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="panel">
+          <h3>Important Boundaries <span class="tag safe">trust</span></h3>
+          <ul>
+            <li>LLMs draft plans, SQL, reports, narratives, and dashboard specs.</li>
+            <li>SQL must pass <code>analytics_agent.sql.validate_sql</code>.</li>
+            <li>Generated dashboard specs render through author-written helper mappings.</li>
+            <li>Experiments are observational, not randomized A/B tests.</li>
+            <li>Approved reports and snapshots persist locally under <code>agent_store/</code>.</li>
+          </ul>
+        </div>
+      </div>
+    </section>
+
+    <section id="data-flow">
+      <h2>Data Flow</h2>
+      <p class="lead">
+        The offline build produces both queryable data and machine-readable
+        metadata. The app uses the warehouse for numbers, the dbt manifests for
+        allow-listing and metric definitions, and Qdrant for semantic retrieval.
+      </p>
+      <div class="canvas">
+        <div class="flow cols-4" aria-label="Offline data and metadata build">
+          <div class="lane">
+            <div class="lane-title">Raw input</div>
+            <div class="node">
+              <h3>CSV or BigQuery Source</h3>
+              <small>Local source is expected at <code>raw_data/zerve_events.csv</code>. Optional BigQuery can supply the same source shape.</small>
+            </div>
+            <div class="node">
+              <h3>Source Model</h3>
+              <small><code>zerveevents.zerve_events_raw</code> feeds staging models.</small>
+            </div>
+          </div>
+          <div class="lane">
+            <div class="lane-title">dbt layers</div>
+            <div class="node">
+              <h3>Staging</h3>
+              <small><code>stg_events</code>, <code>stg_feature_events</code>, <code>user_events</code> type, curate, and enrich raw events.</small>
+            </div>
+            <div class="node">
+              <h3>Marts</h3>
+              <small>Facts, dimensions, rollups, user summaries, weekly activity, AHA milestones, outcomes, and activation lift.</small>
+            </div>
+          </div>
+          <div class="lane">
+            <div class="lane-title">Artifacts</div>
+            <div class="node store">
+              <h3>DuckDB Tables</h3>
+              <small>Static local tables are materialized so app queries do not rescan source data.</small>
+            </div>
+            <div class="node store">
+              <h3>dbt Manifests</h3>
+              <small><code>manifest.json</code> drives query allow-lists. <code>semantic_manifest.json</code> drives metric grounding.</small>
+            </div>
+          </div>
+          <div class="lane">
+            <div class="lane-title">Retrieval index</div>
+            <div class="node agent">
+              <h3>Embedding Script</h3>
+              <small><code>embedding_script.py</code> converts models, columns, semantic models, and metrics into LangChain documents.</small>
+            </div>
+            <div class="node store">
+              <h3>Qdrant Collection</h3>
+              <small>Default collection <code>dbt_semantic_dictionary</code>, default embedding model <code>text-embedding-3-small</code>.</small>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="matrix" style="margin-top: 16px;">
+        <div class="panel">
+          <h3>Core Marts <span class="tag">dbt</span></h3>
+          <ul>
+            <li><code>dim_users</code> for user attributes and cohort slicing.</li>
+            <li><code>user_summary</code> for per-user metrics and AI adoption.</li>
+            <li><code>fct_ai_generations</code>, <code>fct_credits</code>, <code>fct_pageviews</code>, <code>fct_exceptions</code> for event-grain analysis.</li>
+            <li><code>agg_daily_activity</code>, <code>agg_feature_usage</code>, and <code>fct_user_activity_weekly</code> for dashboard trends and retention.</li>
+          </ul>
+        </div>
+        <div class="panel">
+          <h3>AHA Models <span class="tag">dashboard</span></h3>
+          <ul>
+            <li><code>dim_user_outcomes</code> labels conversion, W4 churn, and lifecycle stage.</li>
+            <li><code>fct_activation_milestones</code> tracks week-1 activation events and breadth signals.</li>
+            <li><code>agg_aha_lift</code> powers the Activation &amp; Conversion dashboard.</li>
+          </ul>
+        </div>
+        <div class="panel">
+          <h3>Semantic Layer <span class="tag store">metrics</span></h3>
+          <ul>
+            <li>Semantic models: events, AI generations, credits, exceptions, and user summary.</li>
+            <li>Metrics include DAU, total users, total events, AI generations, AI tokens, latency, credits, exceptions, AI users, and AI adoption rate.</li>
+          </ul>
+        </div>
+      </div>
+    </section>
+
+    <section id="ask-loop">
+      <h2>Ask Trust Loop</h2>
+      <p class="lead">
+        The Ask tab calls <code>stream_agentic_events</code>. The orchestrator
+        handles follow-up condensation, intent routing, semantic grounding,
+        memory, fast paths, the LangGraph analysis loop, and snapshot checks.
+      </p>
+      <div class="canvas">
+        <div class="sequence" aria-label="Online ask trust loop sequence">
+          <div class="step">
+            <span>1. Question</span>
+            <strong>Streamlit Ask</strong>
+            <p>User asks in plain English. Prior turns can be passed as history.</p>
+          </div>
+          <div class="step">
+            <span>2. Condense</span>
+            <strong>Follow-up resolver</strong>
+            <p>Ambiguous follow-ups become standalone questions before routing.</p>
+          </div>
+          <div class="step">
+            <span>3. Route</span>
+            <strong>Intent classifier</strong>
+            <p>Definition, quick metric, dashboard request, or deeper analysis.</p>
+          </div>
+          <div class="step">
+            <span>4. Ground</span>
+            <strong>Semantic layer lookup</strong>
+            <p>Metric definitions are selected from dbt's official semantic manifest.</p>
+          </div>
+          <div class="step">
+            <span>5. Recall</span>
+            <strong>Report memory</strong>
+            <p>Approved prior reports are recalled from SQLite or an optional vector hook.</p>
+          </div>
+          <div class="step">
+            <span>6. Analyze</span>
+            <strong>LangGraph loop</strong>
+            <p>Plan, retrieve, generate SQL, validate, execute, reflect, and synthesize.</p>
+          </div>
+          <div class="step">
+            <span>7. Verify</span>
+            <strong>Snapshots</strong>
+            <p>First numeric finding can be compared against trusted historical baselines.</p>
+          </div>
+          <div class="step">
+            <span>8. Save</span>
+            <strong>Library</strong>
+            <p>Useful reports and approved generated dashboards are persisted for reuse.</p>
+          </div>
+        </div>
+      </div>
+      <div class="matrix" style="margin-top: 16px;">
+        <div class="panel">
+          <h3>LangGraph Analysis Engine <span class="tag agent">agent</span></h3>
+          <ul>
+            <li><code>plan_analysis</code> creates hypotheses and ordered sub-questions.</li>
+            <li><code>run_query</code> retrieves context, generates SQL, validates it, dry-runs when useful, executes, and records findings.</li>
+            <li><code>reflect</code> can enqueue bounded follow-up questions.</li>
+            <li><code>synthesize_report</code> writes a cited final answer from returned rows.</li>
+          </ul>
+        </div>
+        <div class="panel">
+          <h3>Bounded Runtime <span class="tag safe">limit</span></h3>
+          <ul>
+            <li><code>MAX_SUB_QUERIES</code> defaults to 8.</li>
+            <li>Each SQL sub-question gets one draft plus one repair attempt.</li>
+            <li>Detail queries receive a default limit when not aggregate queries.</li>
+          </ul>
+        </div>
+        <div class="panel">
+          <h3>Fast Paths <span class="tag agent">routing</span></h3>
+          <ul>
+            <li>Metric definitions return semantic-layer contracts directly.</li>
+            <li>Simple AI-user questions use trusted dashboard KPI helpers.</li>
+            <li>Dashboard requests produce declarative dashboard specs for preview and approval.</li>
+          </ul>
+        </div>
+      </div>
+    </section>
+
+    <section id="langgraph-routing">
+      <h2>LangGraph And Query Routing</h2>
+      <p class="lead">
+        There are two layers to understand. The outer agentic router decides
+        whether a question needs the full analysis graph at all. The inner
+        LangGraph only runs for open-ended analysis questions that need planned,
+        validated SQL over the warehouse.
+      </p>
+
+      <h3>Outer router: every Ask question starts here</h3>
+      <div class="canvas" style="margin-top: 12px;">
+        <div class="routing-flow" aria-label="Agentic query routing">
+          <div class="routing-node data">
+            <span>Input</span>
+            <strong>User question</strong>
+            <p class="route-example">Optional chat history can come with it.</p>
+            <div class="routing-arrow">-&gt;</div>
+          </div>
+          <div class="routing-node">
+            <span>Condense</span>
+            <strong><code>_condense_question</code></strong>
+            <p class="route-example">Follow-ups like "what about mobile?" become standalone.</p>
+            <div class="routing-arrow">-&gt;</div>
+          </div>
+          <div class="routing-node">
+            <span>Intent</span>
+            <strong><code>_classify_intent</code></strong>
+            <p class="route-example">Definition, simple metric, dashboard, or analysis.</p>
+            <div class="routing-arrow">-&gt;</div>
+          </div>
+          <div class="routing-node store">
+            <span>Grounding</span>
+            <strong><code>lookup_metrics</code></strong>
+            <p class="route-example">Matches the question to dbt semantic metrics.</p>
+            <div class="routing-arrow">-&gt;</div>
+          </div>
+          <div class="routing-node">
+            <span>Route</span>
+            <strong><code>_choose_response_mode</code></strong>
+            <p class="route-example">Chooses definition, quick, standard, deep, or dashboard.</p>
+            <div class="routing-arrow">-&gt;</div>
+          </div>
+          <div class="routing-node safe">
+            <span>Fast path or graph</span>
+            <strong>Short-circuit when possible</strong>
+            <p class="route-example">Only analysis questions enter the LangGraph loop.</p>
+            <div class="routing-arrow">-&gt;</div>
+          </div>
+          <div class="routing-node">
+            <span>Final</span>
+            <strong>Streamed events</strong>
+            <p class="route-example">Streamlit renders each stage as it completes.</p>
+          </div>
+        </div>
+      </div>
+
+      <table class="table" aria-label="Query routing examples" style="margin-top: 16px;">
+        <thead>
+          <tr>
+            <th>Example question</th>
+            <th>Intent</th>
+            <th>Response mode</th>
+            <th>What runs</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>"What is daily active users?"</td>
+            <td><code>metric_definition_question</code></td>
+            <td><code>definition</code></td>
+            <td>Semantic-layer lookup returns the official metric contract. The SQL graph does not run.</td>
+          </tr>
+          <tr>
+            <td>"How many users use AI?"</td>
+            <td><code>simple_metric_question</code></td>
+            <td><code>quick_answer</code></td>
+            <td>Trusted dashboard KPI helpers answer directly with AI users, total users, and adoption rate.</td>
+          </tr>
+          <tr>
+            <td>"Monitor daily active users by week"</td>
+            <td><code>dashboard_request</code></td>
+            <td><code>dashboard_spec</code></td>
+            <td>A declarative dashboard spec is drafted for preview, optional JSON editing, and approval.</td>
+          </tr>
+          <tr>
+            <td>"Why did AI credit consumption change?"</td>
+            <td><code>analysis</code></td>
+            <td><code>standard_analysis</code></td>
+            <td>The full LangGraph plan-query-reflect-synthesize loop runs with guarded SQL.</td>
+          </tr>
+          <tr>
+            <td>"Give me a detailed deep dive on AI usage"</td>
+            <td><code>analysis</code></td>
+            <td><code>deep_dive</code></td>
+            <td>The same analysis graph runs, but the final response is expected to be more complete.</td>
+          </tr>
+        </tbody>
+      </table>
+
+      <h3 style="margin-top: 22px;">Inner LangGraph: only for analysis questions</h3>
+      <div class="canvas" style="margin-top: 12px;">
+        <div class="routing-flow inner" aria-label="LangGraph analysis loop">
+          <div class="routing-node">
+            <span>Node 1</span>
+            <strong><code>plan_analysis</code></strong>
+            <p class="route-example">LLM creates hypotheses and ordered sub-questions.</p>
+            <div class="routing-arrow">-&gt;</div>
+          </div>
+          <div class="routing-node store">
+            <span>Node 2</span>
+            <strong><code>run_query</code></strong>
+            <p class="route-example">Retrieve Qdrant context, draft SQL, validate, execute, record finding.</p>
+            <div class="routing-arrow">-&gt;</div>
+          </div>
+          <div class="routing-node safe">
+            <span>Guardrail</span>
+            <strong><code>validate_sql</code></strong>
+            <p class="route-example">Only read-only, allow-listed dbt model references pass.</p>
+            <div class="routing-arrow">-&gt;</div>
+          </div>
+          <div class="routing-node">
+            <span>Node 3</span>
+            <strong><code>reflect</code></strong>
+            <p class="route-example">Checks whether evidence is enough or bounded follow-ups are needed.</p>
+            <div class="routing-arrow">-&gt;</div>
+          </div>
+          <div class="routing-node">
+            <span>Loop</span>
+            <strong>More <code>run_query</code>?</strong>
+            <p class="route-example">Runs while work remains and <code>max_sub_queries</code> is not reached.</p>
+            <div class="routing-arrow">-&gt;</div>
+          </div>
+          <div class="routing-node">
+            <span>Node 4</span>
+            <strong><code>synthesize_report</code></strong>
+            <p class="route-example">Writes the final answer with cited findings and uncertainty.</p>
+          </div>
+        </div>
+      </div>
+
+      <div class="matrix" style="margin-top: 16px;">
+        <div class="panel">
+          <h3>Conditional Edges <span class="tag agent">LangGraph</span></h3>
+          <ul>
+            <li><code>plan_analysis</code> goes to <code>run_query</code> if planned work exists, otherwise <code>reflect</code>.</li>
+            <li><code>run_query</code> repeats until all planned sub-questions have run or the query budget is reached.</li>
+            <li><code>reflect</code> may append follow-up sub-questions, then route back to <code>run_query</code>.</li>
+            <li>When no more work is pending, <code>synthesize_report</code> runs and the graph ends.</li>
+          </ul>
+        </div>
+        <div class="panel">
+          <h3>Query Safety Path <span class="tag safe">SQL</span></h3>
+          <ul>
+            <li>Each sub-question retrieves dbt context from Qdrant before SQL generation.</li>
+            <li>Generated SQL is stripped from fences and given a default limit when needed.</li>
+            <li>Validation blocks mutations and tables outside the manifest-derived allow-list.</li>
+            <li>BigQuery can dry-run for bytes; DuckDB opens the local database read-only.</li>
+          </ul>
+        </div>
+        <div class="panel">
+          <h3>Events The UI Sees <span class="tag store">stream</span></h3>
+          <ul>
+            <li><code>intent</code>, <code>response_mode</code>, and <code>semantic_layer</code> appear before any analysis work.</li>
+            <li>Analysis emits <code>plan</code>, one or more <code>query</code> events, <code>reflect</code>, and <code>synthesize</code>.</li>
+            <li>Open-ended analysis adds a <code>snapshot_check</code> before <code>final_response</code>.</li>
+          </ul>
+        </div>
+      </div>
+    </section>
+
+    <section id="features">
+      <h2>Feature Surfaces</h2>
+      <p class="lead">
+        The Streamlit UI is not only chat. It exposes several working surfaces,
+        each with a different trust model and persistence path.
+      </p>
+      <div class="feature-grid">
+        <div class="feature">
+          <strong>Ask</strong>
+          <p>Conversational agent with streamed reasoning events, collapsible SQL and sources, model usage, report save action, and generated dashboard preview.</p>
+        </div>
+        <div class="feature">
+          <strong>Library</strong>
+          <p>Saved reports and approved dashboards grouped by theme, month, or type. Reports live in SQLite; dashboards live as JSON specs.</p>
+        </div>
+        <div class="feature">
+          <strong>Dashboard</strong>
+          <p>Activation &amp; Conversion surface over AHA models, with filters, KPI tiles, lift leaderboard, activation depth, churn watch, retention, and funnel views.</p>
+        </div>
+        <div class="feature">
+          <strong>Generated Dashboards</strong>
+          <p>Dashboard specs are declarative. Chart specs map to trusted helpers such as daily activity, feature usage, token usage, funnels, and retention.</p>
+        </div>
+        <div class="feature">
+          <strong>Experiments</strong>
+          <p>Observational cohort comparisons with continuous tests, proportion tests, confidence intervals, effect sizes, and an LLM-drafted recommendation.</p>
+        </div>
+      </div>
+    </section>
+
+    <section id="models">
+      <h2>Model Routing</h2>
+      <p class="lead">
+        Chat model creation is provider-agnostic. By default, the app uses
+        OpenAI-compatible chat via <code>gpt-4.1-mini</code>, while embeddings
+        remain OpenAI <code>text-embedding-3-small</code> so the existing Qdrant
+        collection stays compatible.
+      </p>
+      <table class="table" aria-label="Model routing table">
+        <thead>
+          <tr>
+            <th>Task</th>
+            <th>Default Behavior</th>
+            <th>Relevant Files</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>Condense</td>
+            <td>Resolve chat follow-ups into standalone questions.</td>
+            <td><code>analytics_agent/ask/graph.py</code>, <code>model_profiles.yml</code></td>
+          </tr>
+          <tr>
+            <td>Plan, SQL, Repair, Reflect, Synthesize</td>
+            <td>Routed per task when <code>MODEL_ROUTING_ENABLED</code> is enabled; otherwise uses the global provider and model.</td>
+            <td><code>analytics_agent/ask/model_router.py</code>, <code>analytics_agent/core/llm.py</code></td>
+          </tr>
+          <tr>
+            <td>Experiment Narrative</td>
+            <td>LLM summarizes statistical output with observational caveats and a ship/no-ship/inconclusive recommendation.</td>
+            <td><code>analytics_agent/experiments/</code></td>
+          </tr>
+          <tr>
+            <td>Dashboard Chart Repair</td>
+            <td>LLM can repair an unsupported chart spec, but rendering still maps to trusted helper functions.</td>
+            <td><code>analytics_agent/dashboard/render.py</code></td>
+          </tr>
+          <tr>
+            <td>Cost Tracking</td>
+            <td>Token usage is read from provider metadata when available, otherwise estimated at roughly four characters per token.</td>
+            <td><code>analytics_agent/ask/model_router.py</code></td>
+          </tr>
+        </tbody>
+      </table>
+    </section>
+
+    <section id="guardrails">
+      <h2>Guardrails</h2>
+      <p class="lead">
+        The app is designed so generated content passes through narrow, testable
+        boundaries before it touches the warehouse or saved artifacts.
+      </p>
+      <div class="matrix">
+        <div class="panel">
+          <h3>SQL Validation <span class="tag safe">read-only</span></h3>
+          <ul>
+            <li>Only <code>SELECT</code> and <code>WITH</code> are allowed.</li>
+            <li>Mutation keywords such as insert, update, delete, drop, merge, truncate, alter, and create are blocked.</li>
+            <li>Queries must reference at least one allowed dbt model.</li>
+            <li>Tables outside the manifest-derived allow-list are rejected.</li>
+            <li>Backend-specific fully qualified identifiers are required.</li>
+          </ul>
+        </div>
+        <div class="panel">
+          <h3>Backend Safety <span class="tag safe">runner</span></h3>
+          <ul>
+            <li><code>DuckDBRunner</code> opens the database read-only per query.</li>
+            <li><code>BigQueryRunner</code> supports dry-run byte estimates for optional cloud execution.</li>
+            <li>Dashboard and experiment code use the same runner abstraction.</li>
+          </ul>
+        </div>
+        <div class="panel">
+          <h3>Generated Dashboard Safety <span class="tag safe">mapping</span></h3>
+          <ul>
+            <li>Specs are JSON-like declarations, not executable SQL.</li>
+            <li>Chart types are limited to line, bar, funnel, and heatmap.</li>
+            <li>Rendering maps metrics and dimensions to author-written helper queries.</li>
+          </ul>
+        </div>
+        <div class="panel">
+          <h3>Experiment Caveats <span class="tag risk">stats</span></h3>
+          <ul>
+            <li>No assignment column means no true randomized A/B testing.</li>
+            <li>Cohorts are observational and may be confounded by self-selection.</li>
+            <li>Continuous outcomes use Welch t-test, Mann-Whitney U, Cohen's d, and CI.</li>
+            <li>Rates use two-proportion z-test, chi-square, risk difference, and CI.</li>
+          </ul>
+        </div>
+        <div class="panel">
+          <h3>Snapshot Checks <span class="tag safe">drift</span></h3>
+          <ul>
+            <li>Trusted KPI baselines can be seeded from dashboard helpers.</li>
+            <li>Current numeric findings can be compared to latest snapshots.</li>
+            <li>Default drift threshold is 15 percent.</li>
+          </ul>
+        </div>
+        <div class="panel">
+          <h3>Human Approval <span class="tag safe">library</span></h3>
+          <ul>
+            <li>Reports and dashboards can be reviewed before reuse.</li>
+            <li>Generated dashboard JSON can be edited before approval.</li>
+            <li>Approved artifacts become Library items.</li>
+          </ul>
+        </div>
+      </div>
+    </section>
+
+    <section id="evals">
+      <h2>Evals And Tests</h2>
+      <p class="lead">
+        Evals check the high-level agentic trust loop, while unit tests cover the
+        implementation details that make the loop dependable.
+      </p>
+      <div class="wide-row">
+        <div class="panel">
+          <h3>Eval Scorecard <span class="tag eval">routing</span></h3>
+          <p>
+            <code>evals/run_evals.py</code> loads <code>evals/cases.yaml</code>,
+            runs deterministic intent classification, response-mode selection,
+            semantic metric lookup, and source-table checks.
+          </p>
+          <ul>
+            <li>Definition case: daily active users.</li>
+            <li>Quick metric case: AI users.</li>
+            <li>Dashboard case: monitor daily active users weekly.</li>
+            <li>Analysis case: AI credit consumption changes.</li>
+          </ul>
+        </div>
+        <div class="panel">
+          <h3>Unit Test Coverage <span class="tag eval">unittest</span></h3>
+          <ul>
+            <li>Agent flow and orchestrator behavior.</li>
+            <li>SQL validation and backend runner behavior.</li>
+            <li>Semantic layer contracts and model router selection.</li>
+            <li>Dashboard helpers, dashboard rendering, snapshots, and memory.</li>
+            <li>Experiment statistics and UI helper functions.</li>
+          </ul>
+        </div>
+      </div>
+      <div class="callout" style="margin-top: 16px;">
+        Recommended verification commands: <code>python -m unittest discover -s tests</code>,
+        <code>python evals/run_evals.py</code>, and
+        <code>python embedding_script.py --local-smoke-test</code>.
+      </div>
+    </section>
+
+    <section id="storage">
+      <h2>Storage And Configuration</h2>
+      <div class="matrix">
+        <div class="panel">
+          <h3>Environment <span class="tag store">config</span></h3>
+          <ul>
+            <li><code>BACKEND=duckdb</code> by default, <code>bigquery</code> optional.</li>
+            <li><code>OPENAI_API_KEY</code> is required for default chat and embeddings.</li>
+            <li><code>QDRANT_URL</code>, <code>QDRANT_API_KEY</code>, and <code>QDRANT_COLLECTION_NAME</code> configure retrieval.</li>
+            <li><code>LLM_PROVIDER</code> can be openai, claude, kimi, or openrouter.</li>
+          </ul>
+        </div>
+        <div class="panel">
+          <h3>Local Files <span class="tag store">artifacts</span></h3>
+          <ul>
+            <li><code>zerve_transform/zerve.duckdb</code> stores materialized dbt tables.</li>
+            <li><code>zerve_transform/target/manifest.json</code> supplies model allow-listing.</li>
+            <li><code>zerve_transform/target/semantic_manifest.json</code> supplies official metric contracts.</li>
+          </ul>
+        </div>
+        <div class="panel">
+          <h3>Agent Store <span class="tag store">persistence</span></h3>
+          <ul>
+            <li><code>agent_store/reports.db</code> stores saved report records.</li>
+            <li><code>agent_store/snapshots.db</code> stores trusted metric baselines.</li>
+            <li><code>agent_store/dashboards/*.json</code> stores approved dashboard specs.</li>
+          </ul>
+        </div>
+      </div>
+    </section>
+
+    <section id="change-map">
+      <h2>Change Map</h2>
+      <p class="lead">
+        Use this section when deciding where to make future changes. It points
+        to the module boundary most likely to own each kind of work.
+      </p>
+      <div class="change-map">
+        <div class="panel">
+          <h3>Changing Data Definitions</h3>
+          <ul>
+            <li>New marts or columns: edit <code>zerve_transform/models/**</code> and matching <code>schema.yml</code>.</li>
+            <li>New official metrics: update semantic models and metrics in marts schema YAML, then rebuild semantic manifests.</li>
+            <li>New AHA/dashboard source fields: update dbt models and dashboard helper queries together.</li>
+          </ul>
+        </div>
+        <div class="panel">
+          <h3>Changing Agent Behavior</h3>
+          <ul>
+            <li>Intent or response mode: <code>analytics_agent/ask/graph.py</code> and <code>evals/cases.yaml</code>.</li>
+            <li>Model choices or costs: <code>model_profiles.yml</code> and <code>analytics_agent/ask/model_router.py</code>.</li>
+            <li>Retrieval content: <code>embedding_script.py</code> and dbt metadata.</li>
+          </ul>
+        </div>
+        <div class="panel">
+          <h3>Changing Safety Rules</h3>
+          <ul>
+            <li>SQL constraints: <code>analytics_agent/core/sql.py</code> and <code>tests/test_sql_validation.py</code>.</li>
+            <li>Backend behavior: <code>analytics_agent/core/runners.py</code>, <code>bigquery_client.py</code>, and backend tests.</li>
+            <li>Snapshot drift logic: <code>analytics_agent/ask/snapshots.py</code>.</li>
+          </ul>
+        </div>
+        <div class="panel">
+          <h3>Changing Product Surfaces</h3>
+          <ul>
+            <li>Ask, Library, Dashboard, Experiments, About: one module per tab under <code>analytics_agent/ui/</code> (wired by <code>streamlit_app.py</code>).</li>
+            <li>Dashboard data helpers: <code>analytics_agent/dashboard/queries.py</code>.</li>
+            <li>Generated dashboard rendering and persistence: <code>analytics_agent/dashboard/render.py</code>.</li>
+            <li>Experiment statistics and narrative: <code>analytics_agent/experiments/</code>.</li>
+          </ul>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <footer>
+    <div class="shell">
+      Static architecture document for the Zerve Analytics Agent repository.
+      Open directly in a browser; no build step or external network access is required.
+    </div>
+  </footer>
+</body>
+</html>

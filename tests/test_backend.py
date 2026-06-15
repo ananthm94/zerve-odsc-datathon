@@ -1,9 +1,9 @@
 import unittest
 from dataclasses import replace
 
-from analytics_agent.config import AgentConfig, ConfigError
-from analytics_agent.runners import BigQueryRunner, DuckDBRunner, build_runner
-from analytics_agent.sql import validate_sql
+from analytics_agent.core.config import AgentConfig, ConfigError
+from analytics_agent.core.runners import BigQueryRunner, DuckDBRunner, build_runner
+from analytics_agent.core.sql import validate_sql
 
 
 def _config(**overrides) -> AgentConfig:

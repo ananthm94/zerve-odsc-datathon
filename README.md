@@ -1,257 +1,341 @@
 # Zerve Analytics Agent
 
-An **AI-native data science platform** built on a dbt-modeled semantic layer over
-the Zerve product-analytics dataset (PostHog-style events). Ask a business
-question in plain English and the agent autonomously **plans**, **queries**,
-**reflects**, and **synthesizes** a cited report — backed by read-only SQL,
-a RAG semantic layer, and a statistics module for cohort experiments.
+An AI-native analytics application for the Zerve product-analytics dataset. It
+combines a dbt semantic layer, a local DuckDB warehouse, retrieval over dbt
+metadata, a LangGraph analysis agent, statistical cohort comparisons, and a
+Streamlit UI.
 
-The long-term goal (inspired by a Perplexity data-team JD) is an agent that does
-autonomous end-to-end analysis against an AI-readable semantic layer, runs
-experiment analysis, and self-heals data-quality issues.
+The core workflow is simple from the user's point of view: ask a business
+question in plain English, and the agent plans an analysis, retrieves relevant
+semantic-layer context, writes guarded read-only SQL, executes bounded queries,
+reflects on the evidence, and synthesizes a cited answer.
 
----
+Dataset summary: approximately 3.5M PostHog-style product events, 83 raw
+columns, about 17.5k users, spanning 2025-09 through 2026-04.
 
-## Status
+## What Is In This Repo
 
-Sequential, versioned build (`v0.1` → `v0.8`):
+- A dbt project in `zerve_transform/` that stages raw product events and builds
+  analysis-ready marts into DuckDB.
+- A Python package in `analytics_agent/`, organized by feature so it maps onto
+  the UI tabs: `core/` (shared config, SQL validation, query runners, retrieval,
+  contracts, LLM access), `ask/` (the LangGraph agent and trust loop), `library/`
+  (saved-report memory), `dashboard/` (dashboard queries and rendering),
+  `experiments/` (cohort statistics), and `ui/` (one Streamlit module per tab).
+- `embedding_script.py`, which turns dbt models, semantic models, and metrics
+  into Qdrant documents for RAG.
+- `streamlit_app.py`, a thin entrypoint that wires together a five-tab UI — Ask,
+  Library, Dashboard, Experiments, and About — each backed by a module in
+  `analytics_agent/ui/`.
+- `tests/`, a `unittest` suite covering the agent loop, SQL guardrails, backend
+  selection, dashboard query construction, LLM configuration, and experiments.
+
+## Current Status
 
 | Version | Capability | Status |
 |---|---|---|
-| v0.1 | Repo hygiene (scrubbed secrets, untracked venv) | ✅ Done |
-| v0.2 | Multi-provider LLM (`analytics_agent/llm.py`) | ✅ Done |
-| v0.3 | DuckDB backend (default) + BigQuery kept as backup | ✅ Done |
-| v0.4 | Full dbt semantic layer (marts, semantic models, metrics) | ✅ Done |
-| v0.5 | Autonomous plan → query-loop → reflect → synthesize agent | ✅ Done |
-| v0.6 | Experiment / cohort analysis (`analytics_agent/experiments.py`) | ✅ Done |
-| v0.7 | Productized multi-tab UI: live agent-state streaming + dashboard + experiments | ✅ Done |
+| v0.1 | Repo hygiene and secret scrubbing | Done |
+| v0.2 | Multi-provider LLM factory | Done |
+| v0.3 | DuckDB default backend plus optional BigQuery backend | Done |
+| v0.4 | dbt semantic layer with marts, semantic models, and metrics | Done |
+| v0.5 | Autonomous plan -> query -> reflect -> synthesize agent | Done |
+| v0.6 | Observational cohort experiment analysis | Done |
+| v0.7 | Streamlit app with live agent streaming, dashboard, and experiments | Done |
+| v0.8 | Expanded dashboard: filters, feature usage, retention, funnel | Done |
+| v0.9 | Agentic trust loop: intent routing, semantic grounding, report memory/Library, snapshot verification, dashboard generation, model-cost tracking | Done |
 
-> **Self-healing data quality** was originally planned as a phase but is **not
-> pursued** — the dbt build is green and the marts have no quality issues in this
-> dataset. It's documented as a [future possibility](#future-possibilities)
-> rather than built speculatively.
+The **trust loop** (v0.9) wraps the autonomous agent in an orchestrator
+(`analytics_agent/ask/graph.py`, `stream_agentic_events`): it routes the question to
+an intent (definition, simple metric, dashboard request, or analysis), grounds it
+in official dbt metric contracts via the semantic layer
+(`analytics_agent/ask/semantic_layer.py`), recalls relevant approved reports
+(`analytics_agent/library/memory.py`), runs the plan→query→reflect→synthesize loop for
+open questions, and verifies headline numbers against trusted snapshots
+(`analytics_agent/ask/snapshots.py`). Answers can be saved to the **Library** and
+generated dashboard specs (`analytics_agent/dashboard/render.py`) approved and
+persisted. Per-run model usage and estimated cost are tracked in
+`analytics_agent/ask/model_router.py`, and `evals/run_evals.py` scores intent and
+metric grounding against `evals/cases.yaml`. The UI ships a light violet theme
+(`.streamlit/config.toml`).
 
-**Dataset:** ~3.5M events × 83 columns (PostHog-style), ~17.5k users, spanning
-2025-09 → 2026-04.
-
----
+Self-healing data quality is intentionally not implemented for this static
+datathon dataset. The current dbt build is expected to be green, and the
+self-healing idea is listed under future possibilities rather than built
+speculatively.
 
 ## Architecture
 
+```text
+                       local CSV or optional BigQuery source
+                                      |
+                                      v
++------------------------------------------------------------------+
+| dbt project: zerve_transform/                                    |
+|                                                                  |
+| staging models: stg_events, stg_feature_events, user_events      |
+| mart models: dim_users, fct_* facts, agg_* rollups, user_summary |
+| semantic layer: MetricFlow semantic_models + metrics             |
+|                                                                  |
+| output: zerve_transform/zerve.duckdb and target/manifest.json    |
++------------------------------------------------------------------+
+                         |                         |
+                         |                         v
+                         |       embedding_script.py builds semantic docs
+                         |       from dbt manifest + schema YAML
+                         |                         |
+                         v                         v
++----------------------------------+     +-------------------------+
+| analytics_agent/core/runners.py  |     | Qdrant vector store     |
+| DuckDBRunner or BigQueryRunner   |     | dbt_semantic_dictionary |
++----------------------------------+     +-------------------------+
+                         |                         |
+                         v                         v
++------------------------------------------------------------------+
+| analytics_agent/ask/graph.py                                     |
+| LangGraph state machine:                                         |
+| plan_analysis -> run_query* -> reflect -> run_query* -> synthesize|
+|                                                                  |
+| Each query: retrieve context -> generate SQL -> validate SQL     |
+| -> dry-run if BigQuery -> execute -> record cited finding        |
++------------------------------------------------------------------+
+                         |
+                         v
++------------------------------------------------------------------+
+| streamlit_app.py + analytics_agent/ui/ (one module per tab)      |
+| Ask · Library · Dashboard · Experiments · About                  |
++------------------------------------------------------------------+
 ```
-┌──────────────────────────────────────────────────────────────┐
-│  Data Layer                                                    │
-│    raw_data/zerve_events.csv  (local, default)                 │
-│    BigQuery zerve_events_raw  (optional backup backend)        │
-└─────────────────────────┬──────────────────────────────────────┘
-                          ▼
-┌──────────────────────────────────────────────────────────────┐
-│  dbt Transformations + Semantic Layer  (zerve_transform/)      │
-│    staging/  stg_events (40 typed/curated cols), user_events   │
-│    marts/    dim_users, fct_ai_generations, fct_credits,       │
-│              fct_pageviews, fct_exceptions, agg_daily_activity, │
-│              user_summary  +  metricflow_time_spine             │
-│    semantic_models + metrics  (MetricFlow)                     │
-│    → builds local DuckDB file: zerve_transform/zerve.duckdb    │
-└─────────────────────────┬──────────────────────────────────────┘
-                          │  manifest.json + schema.yml
-                          ▼
-┌──────────────────────────────────────────────────────────────┐
-│  Embedding Pipeline  (embedding_script.py)                     │
-│    dbt models + metrics + semantic models → Documents          │
-│    OpenAI text-embedding-3-small → Qdrant (29 docs)            │
-│    collection: dbt_semantic_dictionary                         │
-└─────────────────────────┬──────────────────────────────────────┘
-                          ▼
-┌──────────────────────────────────────────────────────────────┐
-│  Autonomous Analytics Agent  (analytics_agent/)                │
-│    LangGraph: plan → [run_query]* → reflect → synthesize       │
-│    multi-provider LLM · RAG retrieval · read-only SQL guards   │
-│    + experiments.py  (observational cohort statistics)         │
-└─────────────────────────┬──────────────────────────────────────┘
-                          ▼
-┌──────────────────────────────────────────────────────────────┐
-│  Streamlit UI  (streamlit_app.py)                              │
-│    question → synthesized report + result preview + SQL        │
-└──────────────────────────────────────────────────────────────┘
-```
 
-### Backends
+### Data Layer
 
-DuckDB is the **default** backend (local, free, reproducible). dbt builds a local
-`zerve.duckdb` file and the agent queries it read-only. BigQuery is retained as a
-selectable backup via the `BACKEND` env var; when active, queries also get a
-dry-run byte estimate as a cost guard. Both backends sit behind a single
-`QueryRunner` protocol (`analytics_agent/runners.py`), so the agent is
-backend-agnostic.
+The raw event feed is modeled as a dbt source named `zerveevents.zerve_events_raw`.
+For local DuckDB development, `zerve_transform/profiles.yml` and the source
+metadata expect a CSV at `raw_data/zerve_events.csv` relative to the repo root.
+For optional BigQuery execution, the same source name can point at
+`BIGQUERY_PROJECT.BIGQUERY_DATASET.zerve_events_raw`.
 
-### Multi-provider LLM
+The dbt build materializes models as tables so the app can query a static local
+DuckDB file without repeatedly scanning the source CSV.
 
-The chat model is provider-configurable across **OpenAI, Claude (Anthropic),
-Kimi (Moonshot), and OpenRouter** (`analytics_agent/llm.py`, selected by
-`LLM_PROVIDER`). Embeddings deliberately stay on OpenAI so the existing Qdrant
-collection remains valid.
+### dbt Transform And Semantic Layer
 
----
+The dbt project lives in `zerve_transform/`.
 
-## dbt Models
-
-| Model | Layer | Grain | Description |
+| Model | Layer | Grain | Purpose |
 |---|---|---|---|
-| `stg_events` | staging | event | 40 typed/curated columns from the raw event stream |
-| `user_events` | staging | user | Per-user event counts and first/last timestamps |
-| `dim_users` | marts | user | Stable person attributes + modal device/geo |
-| `fct_ai_generations` | marts | $ai_generation | Token usage, latency, model, provider |
-| `fct_credits` | marts | credit event | Credit consumption events |
-| `fct_pageviews` | marts | $pageview | Pageviews with device/geo + Core Web Vitals |
-| `fct_exceptions` | marts | $exception | Exceptions with device/geo for reliability |
-| `agg_daily_activity` | marts | day | Daily active users + event-type breakdown |
-| `user_summary` | marts | user | Enriched per-user mart (AI/credit/reliability + activity segment) |
-| `stg_feature_events` | staging | event | Event tagged with a product `feature_category` (view; single source of truth for feature grouping) |
-| `agg_feature_usage` | marts | day × feature | Daily feature volume + distinct-user reach |
-| `fct_user_activity_weekly` | marts | user × week | User's active weeks + cohort week + offset (powers retention) |
-| `metricflow_time_spine` | marts | day | Daily spine required by the semantic layer |
+| `stg_events` | staging | event | Typed, curated raw event feed with useful product analytics columns |
+| `stg_feature_events` | staging | event | Adds `feature_category` for product-area usage analysis |
+| `user_events` | staging | user | Per-user event counts and first/last event timestamps |
+| `dim_users` | mart | user | Stable user attributes plus modal device, browser, OS, and geo |
+| `fct_ai_generations` | mart | AI generation event | Tokens, latency, model, provider, and tool-call usage |
+| `fct_credits` | mart | credit event | Credit consumption and zero-balance signals |
+| `fct_pageviews` | mart | pageview event | Pageview context plus sparse Core Web Vitals |
+| `fct_exceptions` | mart | exception event | Reliability events with device and geo context |
+| `agg_daily_activity` | mart | day | Daily active users and event-type counts |
+| `agg_feature_usage` | mart | day x feature | Daily feature volume and distinct-user reach |
+| `fct_user_activity_weekly` | mart | user x week | Weekly active-user cohorts and retention offsets |
+| `user_summary` | mart | user | Enriched user-level facts for cohorting and per-user analysis |
+| `metricflow_time_spine` | mart | day | Daily time spine required by the semantic layer |
 
-**Semantic layer (MetricFlow):** 5 semantic models (`events`, `ai_generations`,
-`credits`, `exceptions`, `user_summary`) expose metrics including
-`daily_active_users`, `total_ai_tokens`, `avg_ai_latency`, `total_credits_used`,
-`total_exceptions`, `total_users`, and the ratio metric `ai_adoption_rate`.
+The semantic layer is declared in `zerve_transform/models/marts/schema.yml`.
+It defines five MetricFlow semantic models:
 
-The agent's queryable allow-list is **derived from the dbt manifest** at runtime
-(`config.py`), so new marts are automatically queryable; the time-spine helper is
-excluded.
+- `events`
+- `ai_generations`
+- `credits`
+- `exceptions`
+- `user_summary`
 
----
+Important metrics include:
 
-## Autonomous Agent
+- `daily_active_users`
+- `total_users`
+- `total_events`
+- `avg_events_per_user`
+- `total_ai_generations`
+- `total_ai_tokens`
+- `avg_ai_latency`
+- `total_credits_used`
+- `total_exceptions`
+- `ai_users`
+- `ai_adoption_rate`
 
-`analytics_agent/graph.py` is a [LangGraph](https://github.com/langchain-ai/langgraph)
-state machine that replaces the old linear "one question → one query → one answer"
-path with an autonomous loop:
+`analytics_agent/core/config.py` derives the query allow-list from
+`zerve_transform/target/manifest.json` when it exists. The MetricFlow time spine
+is excluded from agent querying because it is an internal helper.
 
-```
+### Semantic Retrieval
+
+`embedding_script.py` reads:
+
+- dbt model metadata from `zerve_transform/target/manifest.json`
+- semantic models and metrics from `zerve_transform/models/**/*.yml`
+
+It converts them to LangChain `Document` objects and loads them into Qdrant under
+`QDRANT_COLLECTION_NAME`, defaulting to `dbt_semantic_dictionary`. The default
+embedding model is OpenAI `text-embedding-3-small`.
+
+At runtime, `analytics_agent/core/retriever.py` connects to that existing collection
+and retrieves relevant model, column, semantic-model, and metric context for
+each sub-question before SQL generation.
+
+### Query Backends
+
+`analytics_agent/core/runners.py` exposes one `QueryRunner` protocol:
+
+- `DuckDBRunner` opens `DUCKDB_PATH` read-only for each query. This is the
+  default, local, reproducible path.
+- `BigQueryRunner` in `analytics_agent/core/bigquery_client.py` supports optional
+  BigQuery execution and dry-run byte estimates.
+
+The rest of the app builds against the protocol rather than a specific
+warehouse. Select the backend with `BACKEND=duckdb` or `BACKEND=bigquery`.
+
+### SQL Safety
+
+`analytics_agent/core/sql.py` is the shared guardrail layer.
+
+It:
+
+- strips markdown SQL fences,
+- requires queries to start with `SELECT` or `WITH`,
+- blocks mutation keywords such as `insert`, `update`, `delete`, `drop`, and
+  `merge`,
+- requires at least one referenced table,
+- rejects tables outside the manifest-derived allow-list,
+- requires fully qualified backend-specific table identifiers,
+- injects a default `LIMIT` for non-aggregate detail queries.
+
+DuckDB connections are also opened read-only, so local execution has a second
+defense even if validation is bypassed.
+
+### Autonomous Agent
+
+`analytics_agent/ask/graph.py` defines the LangGraph state machine.
+
+```text
 question
-   │
-   ▼
-[plan_analysis]     — LLM → hypotheses + ordered, self-contained sub-questions (JSON)
-   │
-   ▼
-[run_query] ◄────┐  — per sub-question: retrieve → generate_sql → validate
-   │             │    → (dry-run if BigQuery) → execute → record a finding
-   │             │    Bounded SQL self-repair: a validation/DB error is fed back
-   │             │    to the LLM for one corrective retry (_MAX_SQL_ATTEMPTS=2).
-   ▼             │
-[reflect]  ──────┘  — LLM decides "sufficient" or enqueues bounded follow-ups
-   │
-   ▼
-[synthesize_report] — cited [Q1]… report with explicit uncertainty;
-   │                  never invents numbers not present in results
-   ▼
-report (+ rows / sql / context for the UI)
+  |
+  v
+plan_analysis
+  - LLM returns hypotheses and ordered sub-questions as JSON
+  |
+  v
+run_query, repeated
+  - retrieve dbt context from Qdrant
+  - generate one SQL query
+  - validate and limit SQL
+  - dry-run when using BigQuery
+  - execute and store a finding
+  - retry once with repair prompt on validation/database error
+  |
+  v
+reflect
+  - LLM decides whether evidence is sufficient
+  - may enqueue bounded follow-up sub-questions
+  |
+  v
+synthesize_report
+  - final cited report using only returned query results
 ```
 
-- **Bounded:** total sub-queries (planned + follow-ups) capped by
-  `max_sub_queries` (default 8, env `MAX_SUB_QUERIES`).
-- **Resilient:** a failed sub-question is captured as a finding and never aborts
-  the whole run.
-- **Self-repairing SQL:** bounded retry lifted live success from 2/8 → 6/8 on
-  "What's driving AI credit consumption?".
-- **Backward-compatible:** still surfaces the last successful query's
-  `answer/sql/rows/bytes_processed/context_documents` for the single-box UI.
+Runtime is bounded by `MAX_SUB_QUERIES` through `AgentConfig.max_sub_queries`.
+The default is 8 planned plus follow-up sub-queries total. A failed sub-question
+is recorded as a finding with an error and does not abort the full run.
 
-### Read-only SQL guardrails (`analytics_agent/sql.py`)
+The streaming interface, `stream_analytics_events`, yields one event per graph
+stage so the Streamlit UI can show the plan, each query, reflection, and final
+answer as they complete. `run_analytics_question` remains available for
+non-streaming callers.
 
-Every query — agent-generated or internal — passes `validate_sql`:
-`SELECT`/`WITH` only, no mutation keywords, must reference only allow-listed
-fully-qualified tables. A default `LIMIT` is injected for non-aggregate queries.
-DuckDB connections are opened read-only per query as a second line of defense.
+### LLM Providers
 
-### Key files
+`analytics_agent/core/llm.py` builds the chat model. Supported providers are:
 
-| File | Purpose |
-|---|---|
-| [`analytics_agent/graph.py`](analytics_agent/graph.py) | Autonomous LangGraph agent and node functions |
-| [`analytics_agent/config.py`](analytics_agent/config.py) | `AgentConfig`, env loading, manifest-derived allow-list |
-| [`analytics_agent/llm.py`](analytics_agent/llm.py) | Provider-agnostic chat model factory |
-| [`analytics_agent/runners.py`](analytics_agent/runners.py) | DuckDB / BigQuery `QueryRunner` backends |
-| [`analytics_agent/retriever.py`](analytics_agent/retriever.py) | Qdrant RAG retriever (OpenAI embeddings) |
-| [`analytics_agent/bigquery_client.py`](analytics_agent/bigquery_client.py) | BigQuery dry-run + execute |
-| [`analytics_agent/sql.py`](analytics_agent/sql.py) | SQL validation, fence stripping, default LIMIT |
-| [`analytics_agent/experiments.py`](analytics_agent/experiments.py) | Observational cohort statistics + narrative |
+- `openai`
+- `claude`
+- `kimi`
+- `openrouter`
 
----
+`LLM_PROVIDER` chooses the provider. `LLM_MODEL` chooses the model. `LLM_API_KEY`
+and `LLM_BASE_URL` can override provider defaults. Embeddings intentionally stay
+on OpenAI so one Qdrant collection remains compatible across chat providers.
 
-## Experiment / Cohort Analysis
+### Dashboard Data Layer
 
-The dataset has **no experiment-assignment column**, so there are no true
-randomized A/B tests. `analytics_agent/experiments.py` instead compares
-**observational cohorts** (slices by role, cloud provider, activity segment, or a
-time-based pre/post split) and is explicit that results are **quasi-experimental**
-(differences may be confounded by self-selection).
+`analytics_agent/dashboard/queries.py` contains author-written read-only SQL helpers for
+the Streamlit dashboard. These are not LLM-generated queries, but they still use
+the shared query runner and backend identifiers.
 
-- **Continuous metrics** (tokens, latency, events/user): Welch's t-test +
-  Mann-Whitney U, with Cohen's d and a Welch CI for the mean difference.
-- **Proportions / rates** (AI-adoption, conversion): two-proportion z-test +
-  chi-square, with the risk difference and its Wald CI.
+The dashboard supports:
 
-Cohort samplers build **trusted, internally-constructed SQL** (not LLM-generated)
-but still run through `validate_sql` and allow-listed FQTNs, with `_ident`/
-`_literal` guards against injection. `narrate_experiment` then drafts an LLM
-ship / no-ship recommendation that flags observational confounding, CIs that
-cross zero, sample imbalance, and multiple-comparison risk — judging on effect
-size and CI, not just the p-value.
+- headline KPIs: users, events, AI generations, tokens, credits, exceptions,
+  and AI adoption,
+- daily activity and event mix,
+- AI token usage by model and provider,
+- users by role,
+- exceptions by OS,
+- activity-segment distribution,
+- feature usage and feature trends,
+- weekly retention curves and cohort matrix,
+- ordered first-touch or unordered cumulative funnels.
 
----
+Global filters live in the Streamlit sidebar:
 
-## Productized UI
+- date range,
+- user role,
+- activity segment,
+- continent,
+- country,
+- device type,
+- operating system.
 
-`streamlit_app.py` is a four-tab app over the agent and the warehouse:
+User-attribute filters compile to one consistent matching-user subquery. Daily
+activity uses `agg_daily_activity` when no user filter is active, and recomputes
+from `stg_events` when user filters are active so every chart reflects the same
+cohort.
 
-- **💬 Ask** — the autonomous agent with its reasoning **streamed live**. Instead
-  of a spinner, the user watches each stage land as it completes: the plan
-  (hypotheses + sub-questions), each sub-question's SQL and result rows (failed
-  sub-questions shown inline, not hidden), the reflection, then the synthesized
-  cited report. Powered by `graph.stream_analytics_events`, which yields one
-  event per LangGraph node (`STAGE_PLAN` / `STAGE_QUERY` / `STAGE_REFLECT` /
-  `STAGE_SYNTHESIZE`); `run_analytics_question` remains for non-streaming callers.
-- **📊 Dashboard** — headline KPIs (users, events, AI generations, tokens, credits,
-  exceptions, AI-adoption rate) plus charts: daily active users, daily event mix,
-  AI tokens by model and by provider, users by role, exceptions by OS, and the
-  activity-segment table. Backed by `analytics_agent/dashboard.py` — author-written,
-  read-only canned queries over the marts, cached with `st.cache_data`. Adds:
-  - **Global filters** (sidebar): date range + user-cohort multiselects (role,
-    activity segment, geo, device, OS). User filters resolve to one
-    `user_id IN (matching users)` subquery so every chart shows the same cohort;
-    daily metrics recompute from `stg_events` when a user filter is active.
-  - **Feature usage** — events, distinct-user reach, and adoption % per product
-    feature area, plus a per-feature usage trend (over `stg_feature_events` /
-    `agg_feature_usage`).
-  - **Retention** — weekly cohort retention curve, W1/W4/Wn headline numbers, and
-    an Altair cohort triangle (over `fct_user_activity_weekly`).
-  - **Funnel** — ordered first-touch (or cumulative) conversion funnel with
-    presets (Activation, Agent workflow); honours the global filters.
-- **🧪 Experiments** — pick a cohort dimension (role, segment, provider, …), two
-  cohorts, and a continuous metric or a success definition; runs the v0.6
-  statistics and renders the ship/no-ship narrative with the full statistical
-  detail. Explicitly labels results as quasi-experimental.
-- **ℹ️ About** — architecture and status summary.
+### Experiment And Cohort Analysis
 
-```bash
-streamlit run streamlit_app.py
-```
+The dataset has no randomized experiment-assignment column. The Experiments tab
+and `analytics_agent/experiments/` therefore run observational cohort
+comparisons and label them as quasi-experimental.
 
----
+Supported comparison types:
+
+- continuous metrics: Welch's t-test, Mann-Whitney U, Cohen's d, and a Welch
+  confidence interval for the mean difference,
+- proportions/rates: two-proportion z-test, chi-square test, risk difference,
+  and Wald confidence interval.
+
+The DB-backed samplers build internal SQL with identifier and literal guards,
+then still pass the query through `validate_sql`. The optional LLM narrative
+summarizes ship/no-ship implications while calling out confounding, sample
+imbalance, confidence intervals crossing zero, and multiple-comparison risk.
+
+### Streamlit App
+
+`streamlit_app.py` is the product UI.
+
+Tabs:
+
+- `Ask`: streams the autonomous agent state live.
+- `Dashboard`: renders cached KPIs, charts, feature usage, retention, and funnel
+  views over the dbt marts.
+- `Experiments`: lets users choose cohorts and metrics, then runs the
+  observational statistics workflow.
+- `About`: summarizes the architecture and project status.
 
 ## Setup
 
 ### Prerequisites
 
-- **Python 3.9** (`.venv` is the working env). Run dbt as `.venv/bin/dbt`.
-- An OpenAI API key (required for embeddings; also the default chat provider).
-- A Qdrant Cloud cluster (or local Qdrant) for the semantic-layer vector store.
-- *(Optional)* A Google Cloud project with BigQuery if using the BigQuery backend.
+- Python 3.9+
+- OpenAI API key for embeddings and the default chat provider
+- Qdrant Cloud or local Qdrant for semantic retrieval
+- Optional Google Cloud credentials for BigQuery backend use
 
-### Install
+### Install Dependencies
 
 ```bash
 python -m venv .venv
@@ -259,126 +343,246 @@ source .venv/bin/activate
 pip install -r requirements.txt
 ```
 
-### Environment variables
+### Configure Environment
 
-Copy `.env.example` to `.env` and fill in your values:
+Copy the example environment file:
 
 ```bash
 cp .env.example .env
 ```
 
-| Variable | Description |
-|---|---|
-| `BACKEND` | `duckdb` (default) or `bigquery` |
-| `OPENAI_API_KEY` | OpenAI key (embeddings + default chat) |
-| `OPENAI_EMBEDDING_MODEL` | Embedding model (default `text-embedding-3-small`) |
-| `LLM_PROVIDER` | `openai` (default), `claude`, `kimi`, or `openrouter` |
-| `LLM_MODEL` / `OPENAI_CHAT_MODEL` | Chat model id (default `gpt-4.1-mini`) |
-| `LLM_API_KEY` / `LLM_BASE_URL` | Optional overrides for the chat provider |
-| `MAX_SUB_QUERIES` | Agent sub-query budget (default 8) |
-| `QDRANT_URL`, `QDRANT_API_KEY`, `QDRANT_COLLECTION_NAME` | Qdrant vector store |
-| `DUCKDB_PATH`, `DUCKDB_SCHEMA` | DuckDB file + schema (defaults provided) |
-| `BIGQUERY_PROJECT`, `BIGQUERY_DATASET`, `BIGQUERY_LOCATION` | Only when `BACKEND=bigquery` |
+Fill in the values you need.
 
-### Build the warehouse (DuckDB)
+| Variable | Purpose |
+|---|---|
+| `BACKEND` | `duckdb` by default; set to `bigquery` for BigQuery |
+| `OPENAI_API_KEY` | Required for embeddings and default OpenAI chat |
+| `OPENAI_EMBEDDING_MODEL` | Defaults to `text-embedding-3-small` |
+| `LLM_PROVIDER` | `openai`, `claude`, `kimi`, or `openrouter` |
+| `LLM_MODEL` | Chat model id for the chosen provider |
+| `LLM_API_KEY` | Optional explicit chat-provider key |
+| `LLM_BASE_URL` | Optional custom OpenAI-compatible base URL |
+| `QDRANT_URL` | Qdrant endpoint |
+| `QDRANT_API_KEY` | Qdrant API key |
+| `QDRANT_COLLECTION_NAME` | Defaults to `dbt_semantic_dictionary` |
+| `DUCKDB_PATH` | Defaults to `zerve_transform/zerve.duckdb` |
+| `DUCKDB_SCHEMA` | Defaults to `main` |
+| `BIGQUERY_PROJECT` | Required only for `BACKEND=bigquery` |
+| `BIGQUERY_DATASET` | Required only for `BACKEND=bigquery` |
+| `BIGQUERY_LOCATION` | Optional BigQuery location |
+| `MAX_SUB_QUERIES` | Query budget per agent run, default 8 |
+
+Never commit `.env`, service-account files, API keys, or generated databases.
+
+## Common Workflows
+
+### Build The Local DuckDB Warehouse
+
+Run dbt from the dbt project directory:
 
 ```bash
 cd zerve_transform
 PYTHONWARNINGS=ignore ../.venv/bin/dbt build --target duckdb --profiles-dir .
 ```
 
-### Build the vector store
+This creates or refreshes `zerve_transform/zerve.duckdb` and
+`zerve_transform/target/manifest.json`.
+
+### Run dbt Tests
 
 ```bash
-python embedding_script.py --force-recreate     # rebuild from current dbt manifest
-python embedding_script.py --local-smoke-test    # offline smoke test (no OpenAI/Qdrant)
-python embedding_script.py --query "AI token usage by model"   # retrieval check
+cd zerve_transform
+PYTHONWARNINGS=ignore ../.venv/bin/dbt test --target duckdb --profiles-dir .
 ```
 
-### Launch the UI
+### Build Or Check The Vector Store
+
+Rebuild Qdrant from the current dbt manifest and schema files:
+
+```bash
+python embedding_script.py --force-recreate
+```
+
+Run a local smoke test without OpenAI or Qdrant Cloud:
+
+```bash
+python embedding_script.py --local-smoke-test
+```
+
+Run a retrieval check:
+
+```bash
+python embedding_script.py --query "AI token usage by model"
+```
+
+### Launch The App
 
 ```bash
 streamlit run streamlit_app.py
 ```
 
-Open [http://localhost:8501](http://localhost:8501) and ask, e.g.:
+Then open `http://localhost:8501`.
 
-- *What's driving AI credit consumption?*
-- *How does AI adoption differ across user roles?*
-- *Which segments have the highest exception rates?*
+Good example questions:
 
-### Run tests
+- What is driving AI credit consumption?
+- How does AI adoption differ across user roles?
+- Which segments have the highest exception rates?
+- Which product features have the highest reach?
+- How does week-one retention vary by cohort?
+
+### Run Python Tests
 
 ```bash
 python -m unittest discover -s tests
 ```
 
-Suites: `test_agent.py` (plan → query×N → reflect → synthesize, citations, budget
-cap, self-repair), `test_experiments.py` (stats vs hand-computed refs, SQL
-construction, injection guard, live DuckDB), `test_sql_validation.py`,
-`test_backend.py`, `test_llm.py`.
+Test coverage includes:
 
----
+- `tests/test_agent.py`: LangGraph control flow, streaming events, citations,
+  query budget, and SQL repair,
+- `tests/test_sql_validation.py`: read-only SQL validation and default limits,
+- `tests/test_backend.py`: runner/backend behavior,
+- `tests/test_dashboard.py`: filter compilation and dashboard query paths,
+- `tests/test_experiments.py`: statistics, SQL construction, and injection
+  guards,
+- `tests/test_llm.py`: provider selection and model configuration.
 
-## Project structure
+## Project Structure
 
-```
+```text
 .
-├── analytics_agent/          # Autonomous LangGraph analytics agent
-│   ├── graph.py              # plan → query-loop → reflect → synthesize
-│   ├── config.py             # Config, env loading, manifest-derived allow-list
-│   ├── llm.py                # Multi-provider chat model factory
-│   ├── runners.py            # DuckDB / BigQuery query backends
-│   ├── retriever.py          # Qdrant RAG retriever
-│   ├── bigquery_client.py    # BigQuery dry-run + execute
-│   ├── sql.py                # Read-only SQL validation
-│   ├── experiments.py        # Observational cohort statistics + narrative
-│   └── dashboard.py          # Canned read-only queries for the dashboard tab
-├── zerve_transform/          # dbt project (semantic layer + DuckDB build)
-│   └── models/
-│       ├── staging/          # stg_events, user_events
-│       └── marts/            # dims, facts, aggregates, user_summary, semantic models
-├── embedding_script.py       # Embed dbt metadata into Qdrant
-├── streamlit_app.py          # Q&A UI
-├── tests/                    # unittest suites
+├── README.md
+├── .env.example
 ├── requirements.txt
-└── .env.example
+├── model_profiles.yml
+├── streamlit_app.py                # thin entrypoint: wires the UI tabs together
+├── embedding_script.py
+├── Data Dictionary -- ODSC_Zerve Datathon FINAL.xlsx
+├── analytics_agent/                # organized by feature (one folder per UI tab)
+│   ├── __init__.py
+│   ├── core/                       # shared infra (no feature imports)
+│   │   ├── config.py
+│   │   ├── contracts.py
+│   │   ├── llm.py
+│   │   ├── sql.py
+│   │   ├── runners.py
+│   │   ├── bigquery_client.py
+│   │   └── retriever.py
+│   ├── ask/                        # "Ask" tab: the agentic trust loop
+│   │   ├── graph.py
+│   │   ├── semantic_layer.py
+│   │   ├── model_router.py
+│   │   └── snapshots.py
+│   ├── library/                    # "Library" tab: saved-report memory
+│   │   └── memory.py
+│   ├── dashboard/                  # "Dashboard" tab
+│   │   ├── queries.py              # read-only metric SQL helpers
+│   │   └── render.py               # generated-dashboard rendering/persistence
+│   ├── experiments/                # "Experiments" tab (cohort statistics)
+│   │   └── __init__.py
+│   └── ui/                         # Streamlit UI, one module per tab
+│       ├── theme.py
+│       ├── helpers.py
+│       ├── common.py
+│       ├── ask.py
+│       ├── library.py
+│       ├── dashboard.py
+│       ├── experiments.py
+│       └── about.py
+├── tests/
+│   ├── test_agent.py
+│   ├── test_backend.py
+│   ├── test_dashboard.py
+│   ├── test_experiments.py
+│   ├── test_llm.py
+│   └── test_sql_validation.py
+└── zerve_transform/
+    ├── dbt_project.yml
+    ├── profiles.yml
+    ├── packages.yml
+    ├── package-lock.yml
+    ├── README.md
+    └── models/
+        ├── staging/
+        │   ├── schema.yml
+        │   ├── stg_events.sql
+        │   ├── stg_feature_events.sql
+        │   └── user_events.sql
+        └── marts/
+            ├── schema.yml
+            ├── agg_daily_activity.sql
+            ├── agg_feature_usage.sql
+            ├── dim_users.sql
+            ├── fct_ai_generations.sql
+            ├── fct_credits.sql
+            ├── fct_exceptions.sql
+            ├── fct_pageviews.sql
+            ├── fct_user_activity_weekly.sql
+            ├── metricflow_time_spine.sql
+            └── user_summary.sql
 ```
 
----
+Generated or local-only artifacts you may see:
 
-## Future possibilities
+- `.venv/`: local Python environment,
+- `__pycache__/`: Python bytecode cache,
+- `zerve_transform/target/`: dbt compiled output and `manifest.json`,
+- `zerve_transform/dbt_packages/`: installed dbt packages,
+- `zerve_transform/zerve.duckdb`: local warehouse,
+- `logs/`: dbt and query logs,
+- `.env`: local secrets and runtime configuration.
 
-These are **deliberately not built** for this dataset, but are the natural next
-steps and are sketched here so the direction is clear.
+## Maintenance Notes
 
-### Self-healing data quality
+- When adding a dbt model, document it in the appropriate `schema.yml` and run
+  `dbt build`; the manifest-derived allow-list will pick it up automatically.
+- When adding dashboard queries, keep them read-only, backend-aware through
+  `config.fully_qualified_tables`, and covered by focused tests.
+- When changing agent prompts or state flow, update tests that fake the LLM and
+  runner so the control flow remains bounded and inspectable.
+- When adding experiment metrics or cohort dimensions, preserve the
+  quasi-experimental framing and validate generated SQL through the shared
+  guardrails.
+- Rebuild the Qdrant collection after changing dbt model descriptions, columns,
+  semantic models, or metrics so retrieval reflects the new semantic layer.
 
-Not pursued because the current dbt build is green and the marts show no quality
-issues (no failing tests, no schema drift, sensible distributions). If the
-pipeline grew or ingested live data, it would be added as a monitoring +
-remediation loop:
+## Troubleshooting
 
-1. **Detect** — expand dbt tests (freshness, `accepted_range`, `not_null_proportion`,
-   row-count and distribution anomaly checks via `dbt_utils` / a `dbt source freshness`
-   run) and parse `run_results.json` for failures.
-2. **Triage** — an LLM node reads the failing test, the model SQL, and a sample of
-   offending rows, then classifies the cause (upstream nulls, a type change, a
-   broken join, an outlier source row).
-3. **Propose / heal** — for low-risk fixes (coalesce a new null, widen a type,
-   quarantine bad rows into a `_rejected` table) it drafts a dbt model patch and
-   opens it for review; for ambiguous cases it raises an alert with its diagnosis.
-   Fixes go through review/PR, never silent auto-apply to the warehouse.
+- `Missing required environment variable`: check `.env` and confirm
+  `load_dotenv()` can find it from the repo root.
+- `No dbt model documents found`: build dbt first so
+  `zerve_transform/target/manifest.json` exists.
+- DuckDB file not found: run the dbt build command and confirm `DUCKDB_PATH`
+  matches the path in `zerve_transform/profiles.yml`.
+- SQL validation rejects a query: use fully qualified identifiers from
+  `AgentConfig.fully_qualified_tables`; unqualified table names are rejected.
+- Empty or stale retrieval results: rebuild the Qdrant collection with
+  `python embedding_script.py --force-recreate`.
+- BigQuery credential errors: set `GOOGLE_APPLICATION_CREDENTIALS` and the
+  `BIGQUERY_*` environment variables, or switch back to `BACKEND=duckdb`.
 
-This reuses the existing pieces — the multi-provider LLM, the read-only guardrails,
-and the manifest-driven model registry — so it slots in as additional LangGraph
-nodes rather than a rewrite.
+## Future Possibilities
 
-### Dashboard expansion
+### Self-Healing Data Quality
 
-Global filters, feature usage, weekly retention, and a conversion funnel are now
-**built** (see the Dashboard section above). Remaining stretch ideas: an **AI
-cost** view once a token→price mapping is available, explicit **geographic**
-breakdowns (`country`/`continent` are already in the marts and filterable),
-custom user-defined funnels in the UI, and pinning an agent answer's result table
-as a saved dashboard card.
+This is not implemented because the current static datathon pipeline does not
+need it. If the project ingested live data, a natural extension would be:
+
+1. Detect failures using stronger dbt tests, source freshness, row-count checks,
+   distribution checks, and parsed `run_results.json`.
+2. Triage failures by giving an LLM the failing test, model SQL, and sampled
+   offending rows.
+3. Propose reviewed dbt patches for low-risk fixes, such as null handling, type
+   widening, or quarantining malformed rows.
+
+Fixes should go through review rather than silently mutating the warehouse.
+
+### Product Extensions
+
+- AI cost view once a token-to-price mapping is available.
+- More geographic breakdowns using existing `country` and `continent` fields.
+- Custom user-defined funnels in the UI.
+- Saved dashboard cards from agent result tables.
+- Scheduled refresh or deployment workflow if the project moves beyond local
+  datathon use.

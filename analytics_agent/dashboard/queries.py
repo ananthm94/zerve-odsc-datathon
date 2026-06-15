@@ -28,8 +28,8 @@ from datetime import date
 
 import pandas as pd
 
-from analytics_agent.config import AgentConfig, load_config
-from analytics_agent.runners import QueryRunner, build_runner
+from analytics_agent.core.config import AgentConfig, load_config
+from analytics_agent.core.runners import QueryRunner, build_runner
 
 
 # --- Filters -----------------------------------------------------------------
@@ -591,6 +591,209 @@ def funnel_df(
     )
 
 
+# --- Activation & Conversion (AHA) -------------------------------------------
+#
+# These read the outcome-labeled marts (dim_user_outcomes, fct_activation_
+# milestones, agg_aha_lift). They are USER-grain, so the date filter applies to
+# ``signup_date`` (which signup cohort) and the user-cohort filter to ``user_id``.
+
+
+def aha_kpis(
+    config: AgentConfig | None = None, filters: DashboardFilters = _NO_FILTERS
+) -> dict[str, float]:
+    """Headline activation/monetization scalars over the signup cohort."""
+    config = config or load_config()
+    runner = build_runner(config)
+    t = _table(config, "dim_user_outcomes")
+    where = _where(
+        _filter_conditions(
+            config, filters, date_col="signup_date", user_col="user_id"
+        )
+    )
+    row = _df(
+        runner,
+        f"""
+        SELECT
+            COUNT(*) AS signups,
+            COUNT(*) FILTER (WHERE is_converter) AS converters,
+            COUNT(*) FILTER (WHERE is_churned_w4) AS churned_w4,
+            COUNT(*) FILTER (WHERE outcome_observable AND active_week1
+                             AND NOT is_converter) AS observable_activated,
+            MEDIAN(days_to_convert) AS median_days_to_convert
+        FROM {t}
+        {where}
+        """,
+        max_results=1,
+    ).iloc[0]
+    signups = float(row["signups"] or 0)
+    converters = float(row["converters"] or 0)
+    churned = float(row["churned_w4"] or 0)
+    obs_act = float(row["observable_activated"] or 0)
+    return {
+        "signups": signups,
+        "converters": converters,
+        "conversion_rate": (converters / signups) if signups else 0.0,
+        "churned_w4": churned,
+        # share of observable, activated, non-paying users who churned by W4
+        "w4_churn_rate": (churned / obs_act) if obs_act else 0.0,
+        "median_days_to_convert": float(row["median_days_to_convert"] or 0),
+    }
+
+
+# Activation-reach stages, in journey order. Each is a boolean column on the
+# joined outcome+milestone row. Presented as reach (distinct users who ever hit
+# the milestone), not a strict survival funnel -- conversion can happen without
+# deploying, so the stages are not nested.
+_AHA_STAGES: tuple[tuple[str, str], ...] = (
+    ("Signed up", "TRUE"),
+    ("Messaged AI agent", "m.first_agent_message_ts IS NOT NULL"),
+    ("Ran a block", "m.first_block_run_ts IS NOT NULL"),
+    ("Uploaded own data", "m.first_upload_ts IS NOT NULL"),
+    ("Deployed / published", "m.first_deploy_ts IS NOT NULL"),
+    ("Converted (paid)", "o.is_converter"),
+)
+
+
+def aha_funnel_df(
+    config: AgentConfig | None = None, filters: DashboardFilters = _NO_FILTERS
+) -> pd.DataFrame:
+    """Activation-reach across the signup journey: distinct users per milestone."""
+    config = config or load_config()
+    runner = build_runner(config)
+    o = _table(config, "dim_user_outcomes")
+    m = _table(config, "fct_activation_milestones")
+    where = _where(
+        _filter_conditions(
+            config, filters, date_col="o.signup_date", user_col="o.user_id"
+        )
+    )
+    selects = ", ".join(
+        f"COUNT(*) FILTER (WHERE {cond}) AS s{i}"
+        for i, (_, cond) in enumerate(_AHA_STAGES)
+    )
+    row = _df(
+        runner,
+        f"SELECT {selects} FROM {o} o JOIN {m} m ON o.user_id = m.user_id {where}",
+        max_results=1,
+    ).iloc[0]
+    total = float(row["s0"] or 0)
+    return pd.DataFrame(
+        [
+            {
+                "step": i,
+                "label": label,
+                "users": int(row[f"s{i}"] or 0),
+                "pct_of_signups": (float(row[f"s{i}"] or 0) / total) if total else 0.0,
+            }
+            for i, (label, _) in enumerate(_AHA_STAGES)
+        ]
+    )
+
+
+def aha_lift_df(
+    config: AgentConfig | None = None,
+    signal_type: str | None = None,
+) -> pd.DataFrame:
+    """The AHA leaderboard from agg_aha_lift, optionally filtered by signal_type.
+
+    This is a pre-aggregated model insight over the full signup cohort, so the
+    dashboard's date/user filters do not apply (mirrors how the pre-agg daily
+    path is used when no user filter is set).
+    """
+    config = config or load_config()
+    runner = build_runner(config)
+    t = _table(config, "agg_aha_lift")
+    where = ""
+    if signal_type is not None:
+        if signal_type not in ("product", "paywall"):
+            raise ValueError(f"Unknown signal_type: {signal_type!r}")
+        where = f"WHERE signal_type = {_literal(signal_type)}"
+    return _df(
+        runner,
+        f"""
+        SELECT action, signal_type, users_did_w1, converters_among_them,
+               conversion_rate, baseline_rate, conversion_lift,
+               retained_among_them, retention_rate
+        FROM {t} {where}
+        ORDER BY conversion_lift DESC
+        """,
+    )
+
+
+def aha_depth_df(
+    config: AgentConfig | None = None, filters: DashboardFilters = _NO_FILTERS
+) -> pd.DataFrame:
+    """Conversion & retention by week-1 activity breadth (# distinct active days)."""
+    config = config or load_config()
+    runner = build_runner(config)
+    o = _table(config, "dim_user_outcomes")
+    m = _table(config, "fct_activation_milestones")
+    where = _where(
+        _filter_conditions(
+            config, filters, date_col="o.signup_date", user_col="o.user_id"
+        )
+    )
+    return _df(
+        runner,
+        f"""
+        WITH j AS (
+            SELECT
+                CASE
+                    WHEN m.w1_active_days <= 1 THEN '1 day'
+                    WHEN m.w1_active_days <= 3 THEN '2-3 days'
+                    WHEN m.w1_active_days <= 6 THEN '4-6 days'
+                    ELSE '7 days'
+                END AS depth_bucket,
+                m.w1_active_days,
+                o.is_converter,
+                o.outcome_observable,
+                o.returned_after_w4
+            FROM {o} o JOIN {m} m ON o.user_id = m.user_id
+            {where}
+        )
+        SELECT
+            depth_bucket,
+            MIN(w1_active_days) AS sort_key,
+            COUNT(*) AS users,
+            COUNT(*) FILTER (WHERE is_converter) * 1.0 / COUNT(*) AS conversion_rate,
+            COUNT(*) FILTER (WHERE outcome_observable AND returned_after_w4) * 1.0
+                / NULLIF(COUNT(*) FILTER (WHERE outcome_observable), 0) AS retention_rate
+        FROM j
+        GROUP BY depth_bucket
+        ORDER BY sort_key
+        """,
+    )
+
+
+def churn_watch_df(
+    config: AgentConfig | None = None, filters: DashboardFilters = _NO_FILTERS
+) -> pd.DataFrame:
+    """Activated, non-paying users bucketed by recency -- the at-risk watchlist."""
+    config = config or load_config()
+    runner = build_runner(config)
+    t = _table(config, "dim_user_outcomes")
+    conds = _filter_conditions(
+        config, filters, date_col="signup_date", user_col="user_id"
+    )
+    where = _where(["activated", "NOT is_converter"], conds)
+    return _df(
+        runner,
+        f"""
+        WITH j AS (
+            SELECT CASE
+                WHEN recency_days <= 7 THEN '1. Active (<=7d)'
+                WHEN recency_days <= 28 THEN '2. Cooling (8-28d)'
+                ELSE '3. Churned (>28d)'
+            END AS recency_band
+            FROM {t}
+            {where}
+        )
+        SELECT recency_band, COUNT(*) AS users
+        FROM j GROUP BY recency_band ORDER BY recency_band
+        """,
+    )
+
+
 def distinct_values(
     table: str, column: str, config: AgentConfig | None = None, limit: int = 50
 ) -> list[str]:
@@ -630,4 +833,9 @@ __all__ = [
     "retention_matrix_df",
     "retention_curve_df",
     "funnel_df",
+    "aha_kpis",
+    "aha_funnel_df",
+    "aha_lift_df",
+    "aha_depth_df",
+    "churn_watch_df",
 ]

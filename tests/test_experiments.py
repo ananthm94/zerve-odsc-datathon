@@ -13,7 +13,7 @@ from dataclasses import replace
 from unittest import mock
 
 from analytics_agent import experiments as exp
-from analytics_agent.config import AgentConfig
+from analytics_agent.core.config import AgentConfig
 
 
 def _config(**overrides) -> AgentConfig:

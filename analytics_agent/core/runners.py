@@ -9,8 +9,8 @@ from __future__ import annotations
 
 from typing import Any, Protocol, runtime_checkable
 
-from analytics_agent.bigquery_client import BigQueryRunner
-from analytics_agent.config import AgentConfig, ConfigError
+from analytics_agent.core.bigquery_client import BigQueryRunner
+from analytics_agent.core.config import AgentConfig, ConfigError
 
 
 @runtime_checkable

@@ -16,3 +16,11 @@ zerve_transform/dbt_internal_packages/
 *.json
 zerve_transform/my-zerve-project-7d9f0370ac55.json
 *.duckdb
+agent_store/
+
+# AI coding-agent tooling — kept local, not published
+CLAUDE.md
+AGENTS.md
+Agents.md
+.claude/
+docs/superpowers/

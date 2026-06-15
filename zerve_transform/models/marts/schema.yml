@@ -246,6 +246,129 @@ models:
       - name: is_ai_user
         description: True if the user has at least one AI generation.
 
+  - name: dim_user_outcomes
+    description: >
+      One row per signup user, labeled with the monetization and retention
+      outcome. The join target for the AHA-moment analysis. Conversion =
+      upgrade_subscription/subscription_upgraded; churn (W4) = activated in week 1
+      but did not return on/after signup+28d (evaluated only for users observable
+      for >=35 days).
+    columns:
+      - name: user_id
+        description: Unique user identifier.
+        data_tests: [not_null, unique]
+      - name: signup_ts
+        description: Timestamp of the user's first sign_up / new_user_created event.
+        data_tests: [not_null]
+      - name: signup_date
+        description: Calendar date of signup.
+      - name: is_converter
+        description: True if the user ever upgraded their subscription.
+      - name: first_upgrade_ts
+        description: Timestamp of the first subscription upgrade (null if never).
+      - name: days_to_convert
+        description: Days from signup to first upgrade (null if never converted).
+      - name: converted_within_7d
+        description: True if the user converted within 7 days of signup.
+      - name: active_week1
+        description: True if the user did a core product action within the first 7 days.
+      - name: activated
+        description: True if the user ever did a core product action (canvas/block/agent/upload).
+      - name: returned_after_w4
+        description: True if the user had any activity on/after signup+28 days.
+      - name: outcome_observable
+        description: True if signup is >=35 days before the data's last date (W4 churn is observable).
+      - name: last_active_date
+        description: Calendar date of the user's most recent event.
+      - name: recency_days
+        description: Days between last activity and the data's last date.
+      - name: is_churned_w4
+        description: >
+          True if observable, never converted, active in week 1, but never
+          returned after week 4. The headline churn flag.
+      - name: lifecycle_stage
+        description: "converted | retained_free | churned_w4 | never_activated | too_new."
+        data_tests:
+          - accepted_values:
+              arguments:
+                values: [converted, retained_free, churned_w4, never_activated, too_new]
+
+  - name: fct_activation_milestones
+    description: >
+      The AHA feature table: one row per signup user with the first-occurrence
+      timestamp of each candidate activation milestone, week-1 flags (did the user
+      hit it within the AHA window), and week-1 breadth/depth signals. Joins to
+      dim_user_outcomes for outcome labels.
+    columns:
+      - name: user_id
+        description: Unique user identifier.
+        data_tests: [not_null, unique]
+      - name: first_upload_ts
+        description: First time the user uploaded their own data.
+      - name: first_agent_message_ts
+        description: First time the user messaged the AI agent.
+      - name: first_agent_build_ts
+        description: First time the agent created/ran/refactored a block or script.
+      - name: first_block_run_ts
+        description: First time the user ran a block.
+      - name: first_canvas_create_ts
+        description: First time the user created a canvas.
+      - name: first_deploy_ts
+        description: First time the user deployed or published.
+      - name: first_credit_exhaust_ts
+        description: First time the user hit a low/exceeded credit threshold.
+      - name: did_upload_w1
+        description: True if first upload occurred within 7 days of signup.
+      - name: did_agent_message_w1
+        description: True if first agent message occurred within 7 days of signup.
+      - name: did_agent_build_w1
+        description: True if first agent build occurred within 7 days of signup.
+      - name: did_block_run_w1
+        description: True if first block run occurred within 7 days of signup.
+      - name: did_canvas_create_w1
+        description: True if first canvas creation occurred within 7 days of signup.
+      - name: did_deploy_w1
+        description: True if first deploy occurred within 7 days of signup.
+      - name: did_credit_exhaust_w1
+        description: True if the user first hit a credit limit within 7 days of signup.
+      - name: w1_active_days
+        description: Distinct active days in the first 7 days (breadth signal).
+      - name: w1_event_count
+        description: Total events in the first 7 days.
+      - name: w1_distinct_features
+        description: Distinct event types touched in the first 7 days (breadth signal).
+
+  - name: agg_aha_lift
+    description: >
+      The AHA leaderboard: one row per (early action, signal_type) with the
+      week-1 reach, conversion rate, lift vs the signup baseline, and W4 retention
+      rate. signal_type separates genuine product actions from paywall/intent
+      symptoms. Powers the Activation & Conversion dashboard.
+    columns:
+      - name: action
+        description: Human-readable early action label.
+        data_tests: [not_null]
+      - name: signal_type
+        description: "product (genuine build/ship action) or paywall (monetization symptom)."
+        data_tests:
+          - accepted_values:
+              arguments:
+                values: [product, paywall]
+      - name: users_did_w1
+        description: Distinct signup users who did the action within their week-1 window.
+      - name: converters_among_them
+        description: How many of those users went on to convert.
+      - name: conversion_rate
+        description: converters_among_them / users_did_w1.
+      - name: baseline_rate
+        description: Overall conversion rate across all signup users.
+      - name: conversion_lift
+        description: conversion_rate / baseline_rate.
+      - name: retained_among_them
+        description: Observable users who returned after week 4.
+      - name: retention_rate
+        description: retained_among_them / observable users who did the action.
+
 semantic_models:
   - name: events
     description: Event-grain semantic model for active-user and event-volume metrics.

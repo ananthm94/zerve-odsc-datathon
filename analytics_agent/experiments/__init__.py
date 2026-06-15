@@ -27,10 +27,10 @@ from typing import Literal, Sequence
 from scipy import stats
 from statsmodels.stats.proportion import proportions_ztest
 
-from analytics_agent.config import AgentConfig
-from analytics_agent.llm import build_chat_model
-from analytics_agent.runners import build_runner
-from analytics_agent.sql import validate_sql
+from analytics_agent.core.config import AgentConfig
+from analytics_agent.core.llm import build_chat_model
+from analytics_agent.core.runners import build_runner
+from analytics_agent.core.sql import validate_sql
 
 
 # --- Specs -------------------------------------------------------------------

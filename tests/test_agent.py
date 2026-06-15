@@ -9,8 +9,8 @@ import unittest
 from dataclasses import replace
 from unittest import mock
 
-from analytics_agent import graph as graph_module
-from analytics_agent.config import AgentConfig
+from analytics_agent.ask import graph as graph_module
+from analytics_agent.core.config import AgentConfig
 
 
 def _config(**overrides) -> AgentConfig:

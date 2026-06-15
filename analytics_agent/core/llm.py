@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import os
 
-from analytics_agent.config import AgentConfig, ConfigError
+from analytics_agent.core.config import AgentConfig, ConfigError
 
 
 KNOWN_PROVIDERS = {"openai", "claude", "kimi", "openrouter"}
@@ -47,18 +47,25 @@ def _resolve_base_url(provider: str, config: AgentConfig) -> str | None:
     return None
 
 
-def build_chat_model(config: AgentConfig, *, temperature: float = 0):
+def build_chat_model(
+    config: AgentConfig,
+    *,
+    temperature: float = 0,
+    provider: str | None = None,
+    model: str | None = None,
+):
     """Return a LangChain chat model for the configured provider."""
-    provider = (config.llm_provider or "openai").lower()
-    if provider not in KNOWN_PROVIDERS:
+    resolved_provider = (provider or config.llm_provider or "openai").lower()
+    if resolved_provider not in KNOWN_PROVIDERS:
         raise ConfigError(
-            f"Unknown LLM provider: {provider!r}. "
+            f"Unknown LLM provider: {resolved_provider!r}. "
             f"Expected one of {sorted(KNOWN_PROVIDERS)}."
         )
 
-    api_key = _resolve_api_key(provider, config)
+    api_key = _resolve_api_key(resolved_provider, config)
+    resolved_model = model or config.chat_model
 
-    if provider == "claude":
+    if resolved_provider == "claude":
         try:
             from langchain_anthropic import ChatAnthropic
         except ImportError as exc:  # pragma: no cover - import guard
@@ -66,7 +73,7 @@ def build_chat_model(config: AgentConfig, *, temperature: float = 0):
                 "LLM_PROVIDER=claude requires the 'langchain-anthropic' package. "
                 "Install it with: pip install langchain-anthropic"
             ) from exc
-        kwargs: dict = {"model": config.chat_model, "temperature": temperature}
+        kwargs: dict = {"model": resolved_model, "temperature": temperature}
         if api_key:
             kwargs["api_key"] = api_key
         return ChatAnthropic(**kwargs)
@@ -74,10 +81,10 @@ def build_chat_model(config: AgentConfig, *, temperature: float = 0):
     # openai / kimi / openrouter are all OpenAI-compatible.
     from langchain_openai import ChatOpenAI
 
-    kwargs = {"model": config.chat_model, "temperature": temperature}
+    kwargs = {"model": resolved_model, "temperature": temperature}
     if api_key:
         kwargs["api_key"] = api_key
-    base_url = _resolve_base_url(provider, config)
+    base_url = _resolve_base_url(resolved_provider, config)
     if base_url:
         kwargs["base_url"] = base_url
     return ChatOpenAI(**kwargs)

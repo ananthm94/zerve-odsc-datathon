@@ -1,0 +1,32 @@
+# Zerve Analytics Agent — UI theme.
+# A calm light surface with a violet accent, chosen to be easier on the eyes
+# than the default dark/red Streamlit look. Edit colors here to re-skin globally.
+
+[theme]
+base = "light"
+
+# Violet accent used for primary buttons, active tabs, sliders, focus rings.
+primaryColor = "#7C3AED"
+
+# Clean white canvas; lavender-tinted panels for sidebar, cards, expanders.
+backgroundColor = "#FFFFFF"
+secondaryBackgroundColor = "#F4F1FB"
+
+# Deep plum-charcoal text for comfortable contrast on white.
+textColor = "#241B35"
+
+# Links pick up the accent rather than the default blue.
+linkColor = "#6D28D9"
+
+# Soft, rounded surfaces and subtle borders to match the lighter palette.
+baseRadius = "0.6rem"
+borderColor = "#E7E1F5"
+showWidgetBorder = true
+
+font = "sans serif"
+headingFont = "sans serif"
+
+[theme.sidebar]
+backgroundColor = "#FAF8FE"
+secondaryBackgroundColor = "#F1ECFB"
+borderColor = "#E7E1F5"

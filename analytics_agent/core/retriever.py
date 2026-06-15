@@ -1,7 +1,7 @@
 from langchain_openai import OpenAIEmbeddings
 from langchain_qdrant import QdrantVectorStore
 
-from analytics_agent.config import AgentConfig
+from analytics_agent.core.config import AgentConfig
 
 
 def create_retriever(config: AgentConfig, k: int = 5):

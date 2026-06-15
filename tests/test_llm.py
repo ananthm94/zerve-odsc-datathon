@@ -1,8 +1,8 @@
 import unittest
 from dataclasses import replace
 
-from analytics_agent.config import AgentConfig, ConfigError
-from analytics_agent.llm import (
+from analytics_agent.core.config import AgentConfig, ConfigError
+from analytics_agent.core.llm import (
     MOONSHOT_BASE_URL,
     OPENROUTER_BASE_URL,
     build_chat_model,
